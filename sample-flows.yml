@@ -1,0 +1,110 @@
+# Flow Engine
+#
+# NodeName:
+#   trigger: String or List[String]. When to fire this workflow.
+#   # `steps` is optional, if missing it is implied that rest of Map is step 0.
+#   steps:
+#   - type: FullyQualifiedFunction or Alias
+#     args: Static arguments passed to the function via context. String values
+#       can contain interpolated variables.
+#     transitions: StringKeyword or Map. Used to tell the FlowEngine what node to
+#       go to next, see below.
+#
+# Step Functions
+#   Each function is called with:
+#     - Callback Generator fn: Step Functions can use this to generate a
+#         callback String for use in actions.
+#     - Context (see below): The context
+#     - data: Opaque data passed in with the `trigger`
+#   These functions return a StepResult.
+#
+# Transitions
+#   Possible value are:
+#     - "_next" (this is the default):
+#       If there is another step after this one, go to that node. If not, stop.
+#     - "_auto": The :transition value of StepResult is the name of the next node.
+#       Note: for consistency, Step Functions should return transition Strings as kebab-case.
+#       "_terminal": Stop the flow
+#     - A Map of name/values: The :transition value of the StepResult is the
+#       looked up in this map, the value is the name of the node.
+#       MisconfigurationException is raised key is not found.
+#   The node that will be transitioned to is another flow name or a flow-name.step-id, where
+#     step-id is the (zero-based) ordinal position of the step.
+#   Example:
+#     transitions:
+#       ok: foo.0
+#       quit: bar.1
+#       continue: baz
+#   Note: You can use this step-id feature to do loops.
+#
+# Aliases:
+#   menu = fair.flow.slack/menu-step
+#   message = fair.flow.slack/message-step
+#   dialog = fair.flow.slack/dialog-step
+#
+# Context (for variable interpolation and first argument to each fn call):
+#   - flow-name
+#   - args
+#   - results of previous step (??? prev step needs to `save value` explicitly ???)
+
+# This is the first flow.
+hi:
+  # The sample app will `trigger-init` with "session-start". This
+  # `trigger` entry is how it knows to start this Flow. One trigger can
+  # start multiple flows if there are multiple matches; in that case,
+  # each one is separate Session.
+  trigger: session-start
+  steps:
+  - name: hi
+    type: message
+    args:
+      text: "Hello."
+  - name: get-name
+    type: prompt
+    args:
+      save-key: profile.name
+      text: "What is your name?"
+    transitions:
+      ok: main-menu
+      blank: hi.error
+  - name: error
+    type: message
+    args:
+      text: "That is not a valid name, let's try again."
+    transitions:
+      "*": hi.get-name
+
+# This is a separate flow, but one session (and it's Session state) can
+# be shared between flows.
+main-menu:
+  steps:
+  - name: main-menu
+    type: menu
+    args:
+      title: How can I help?
+      options:
+        - Time
+        - Date
+        - Done
+    transitions:
+      # options ...
+      _auto
+  - name: done
+    type: message
+    args:
+      text: "bye"
+    transitions: _terminal
+  - name: time
+    type: message
+    args:
+      # For this app (due to a plugable renderer) args are parsed as Mustache templates.
+      text: "{{session.profile.name}}, the time is {{#static.time-str}}X{{/static.time-str}}."
+    transitions:
+      "*": main-menu.main-menu
+  - name: date
+    type: message
+    args:
+      # For this app (due to a plugable renderer) args are parsed as Mustache templates.
+      text: "{{session.profile.name}}, the date is {{#static.date-str}}{{/static.date-str}}."
+    transitions:
+      "*": main-menu.main-menu
