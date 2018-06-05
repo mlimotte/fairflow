@@ -3,7 +3,7 @@
     [clojure.test :refer :all]
     [clojure.string :as string]
     [fair.flow-contrib.mustache-render :refer :all]
-    [fair.util.lang :as lang]))
+    [fair.flow.util.lang :as lang]))
 
 (deftest test-string-values-render
   (are [data-map s expected]

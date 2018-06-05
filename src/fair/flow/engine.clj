@@ -4,9 +4,9 @@
     [clojure.spec.alpha :as spec]
     [clojure.string :as string]
     [camel-snake-kebab.core :as csk]
-    [fair.util.lang :as lang]
+    [fair.flow.util.lang :as lang]
     [fair.flow.datastore :as ds]
-    [fair.util.spec :as fus]))
+    [fair.flow.util.spec :as fus]))
 
 (defrecord FlowEngine [datastore flow-config
                        flow-version aliases handlers static-interpolation-context])

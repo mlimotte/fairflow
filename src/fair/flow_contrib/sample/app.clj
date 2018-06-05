@@ -23,7 +23,7 @@
     [fair.flow.datastore :as ds]
     [clj-logging-config.log4j :as logging-config]
     [clojure.tools.logging :as log]
-    [fair.util.lang :as lang])
+    [fair.flow.util.lang :as lang])
   (:import
     (java.util Date)))
 

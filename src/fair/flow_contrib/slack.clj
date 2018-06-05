@@ -5,9 +5,9 @@
     [clojure.data.json :as json]
     [org.httpkit.client :as http]
     [camel-snake-kebab.core :as csk]
-    [fair.util.spec :as fus]
+    [fair.flow.util.spec :as fus]
     [fair.flow.engine :as engine]
-    [fair.util.lang :as lang]
+    [fair.flow.util.lang :as lang]
     [clojure.walk :as walk]))
 
 (def color-error-red "#FF4444")

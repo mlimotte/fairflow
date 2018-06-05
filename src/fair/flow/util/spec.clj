@@ -1,4 +1,4 @@
-(ns fair.util.spec
+(ns fair.flow.util.spec
   (:require
     [clojure.string :as string]
     [clojure.spec.alpha :as spec]))

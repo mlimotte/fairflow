@@ -3,8 +3,7 @@
     [clojure.test :refer :all]
     [fair.flow.engine :refer :all]
     [fair.flow.datastore :as ds]
-    [fair.util.lang :as lang]
-    [fair.flow.engine :as engine]))
+    [fair.flow.util.lang :as lang]))
 
 (defn sample-step-fn
   [& args]
@@ -277,7 +276,7 @@
                                   :steps   [{:type "steppy", :name "C1"}
                                             {:type "steppy", :name "C2"}]}})]
     (trigger-init
-      (engine/map->FlowEngine
+      (map->FlowEngine
         {:flow-config flow-config
          :aliases     {"steppy" fair.flow.test-engine/sample-step}
          :handlers    {:samp (partial fair.flow.test-engine/sample-handler handler-calls)}

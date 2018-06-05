@@ -3,7 +3,7 @@
     [clojure.test :refer :all]
     [fair.flow.datastore :as ds]
     [fair.flow-contrib.datomic-datastore]
-    [fair.util.lang :as lang]))
+    [fair.flow.util.lang :as lang]))
 
 (comment
   (ds/new-session (:datastore @the-system) "TEST1d" 0)

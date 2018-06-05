@@ -43,4 +43,4 @@
 
   (store-session [this session flow-name step-name shared-state-mutations step-state]
     "Persist the session details and state.
-    Should do a recursive merge for shared-state-mutations, as per `fair.util.lang/merge-maps`."))
+    Should do a recursive merge for shared-state-mutations, as per `fair.flow.util.lang/merge-maps`."))

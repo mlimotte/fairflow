@@ -1,4 +1,4 @@
-(ns fair.util.lang
+(ns fair.flow.util.lang
   (:require
     [clojure.string :as string]))
 

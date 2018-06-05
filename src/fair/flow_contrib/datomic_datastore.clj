@@ -15,7 +15,7 @@
     [clojure.tools.reader.edn :as edn]
     [datomic.api :as d]
     [fair.flow.datastore :as ds]
-    [fair.util.lang :as lang]))
+    [fair.flow.util.lang :as lang]))
 
 ; Helpful ref: http://subhasingh.com/blog/How-to-Setup-Datomic-Free/
 

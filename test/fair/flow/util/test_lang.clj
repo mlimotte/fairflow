@@ -1,7 +1,7 @@
-(ns fair.util.test-lang
+(ns fair.flow.util.test-lang
   (:require
     [clojure.test :refer :all]
-    [fair.util.lang :refer :all]))
+    [fair.flow.util.lang :refer :all]))
 
 (deftest test-as-long
   (are [x expected]
@@ -28,12 +28,12 @@
 (deftest test-resolve-var-by-name
   ; Happy path
   (is (= (resolve-var-by-name "clojure.core/+") #'+))
-  (is (= (resolve-var-by-name "fair.util.test-lang/foo") #'foo))
+  (is (= (resolve-var-by-name "fair.flow.util.test-lang/foo") #'foo))
   ; Failure cases
   (is (thrown? ClassNotFoundException (resolve-var-by-name nil)))
   (is (thrown? ClassNotFoundException (resolve-var-by-name "")))
-  (is (thrown? ClassNotFoundException (resolve-var-by-name "fair.util.test-lang.foo")))
-  (is (thrown? ClassNotFoundException (resolve-var-by-name "fair.util.test-lang/nothing"))))
+  (is (thrown? ClassNotFoundException (resolve-var-by-name "fair.flow.util.test-lang.foo")))
+  (is (thrown? ClassNotFoundException (resolve-var-by-name "fair.flow.util.test-lang/nothing"))))
 
 (deftest test-merge-maps
   (is (= (merge-maps {:a {:b {:c {:d 1 :e 1}}}}
