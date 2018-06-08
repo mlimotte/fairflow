@@ -20,7 +20,7 @@
   ;  2. user-data at the flow and step levels
   ; Note: The KH bucket concept is done at a higher level, by the handlers and step fns
 
-  (new-session [this flow-version flow-name step-name]
+  (new-session [this flow-version flow-name step-name data]
     "Create a new session, saving the current flow/step in it. A unique session-id
     will also be generated, which serves as a primary key for the session data.
 

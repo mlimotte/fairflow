@@ -84,7 +84,7 @@
 
 (deftype DatomicDatastore [conn]
   ds/FlowEngineDatastore
-  (new-session [this flow-version flow-name step-name]
+  (new-session [this flow-version flow-name step-name data]
     (let [res        @(d/transact conn
                                   [{:db/id                          "new-session"
                                     :flow-session/flow-version      flow-version

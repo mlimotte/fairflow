@@ -175,7 +175,7 @@
 
 (deftype SampleDatastore [all-sessions]
   ds/FlowEngineDatastore
-  (new-session [this flow-version flow-name step-name]
+  (new-session [this flow-version flow-name step-name data]
     (let [len         (count @all-sessions)
           new-session {:id            len
                        :session-state {}
@@ -229,7 +229,7 @@
                                   :transitions "_auto"}})
         all-sessions  (atom [])
         dstore        (->SampleDatastore all-sessions)
-        new-session   (ds/new-session dstore nil nil nil)
+        new-session   (ds/new-session dstore nil nil nil nil)
         handler-calls (atom [])
         extra-context {:extra-context "req1"}]
     (run-step {:flow-config fconfig

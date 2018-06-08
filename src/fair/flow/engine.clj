@@ -7,8 +7,8 @@
     [fair.flow.datastore :as ds]
     [fair.flow.util.spec :as fus]))
 
-(defrecord FlowEngine [datastore flow-config
-                       flow-version aliases handlers static-interpolation-context])
+(defrecord FlowEngine [datastore flow-config flow-version
+                       static-interpolation-context renderer aliases handlers])
 
 (defrecord StepResult [actions transition shared-state-mutations step-state])
 
@@ -352,7 +352,8 @@
                   session (and step (ds/new-session (:datastore flow-engine)
                                                     (:flow-version flow-engine)
                                                     (:name flow)
-                                                    (:name step)))]]
+                                                    (:name step)
+                                                    data))]]
       (if step
         (run-step flow-engine session extra-context trigger data flow step)
         (throw-misconfig "Workflow has no steps for trigger "

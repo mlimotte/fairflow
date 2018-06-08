@@ -6,7 +6,7 @@
     [fair.flow.util.lang :as lang]))
 
 (comment
-  (ds/new-session (:datastore @the-system) "TEST1d" 0)
+  (ds/new-session (:datastore @the-system) "TEST1d" 0 nil)
   (def s1 (ds/get-session ds 17592186045434)) ;"TEST1d" 0
   (map (partial get s1) (keys s1)))
 
@@ -16,7 +16,7 @@
 (deftest test-DatomicDatastore
   (let [conn              (fair.flow-contrib.datomic-datastore/setup "datomic:mem://test")
         store             (fair.flow-contrib.datomic-datastore/->DatomicDatastore conn)
-        session           (ds/new-session store "v1" "flow-a" "step1")
+        session           (ds/new-session store "v1" "flow-a" "step1" nil)
         session-id        (ds/session-id store session)
         retrieved-session (ds/get-session store session-id)]
 
