@@ -6,24 +6,18 @@
 
   :dependencies [[org.clojure/clojure "1.9.0"]
 
-                 ; [com.stuartsierra/component "0.3.2"]
-                 ; [org.clojure/tools.cli "0.3.7"]
-                 ; [org.clojure/core.async "0.4.474"]
                  ; [org.clojure/core.memoize "0.7.1"]
-                 ; [org.clojure/tools.trace "0.7.9"]
                  ; [clj-time "0.14.3"]
-                 ; [fipp "0.6.12"] ; pretty printer
                  ; [amazonica "0.3.123"] ; AWS api
-                 ; [org.clojure/data.xml "0.0.8"]
-                 ; [google-apps-clj "0.6.1"]
-                 ; [camel-snake-kebab "0.4.0"]
-                 ; [org.flatland/ordered "1.5.6"]
                  ; [org.flatland/useful "0.11.5"
                  ;   :exclusions [org.clojure/tools.macro
                  ;                org.clojure/tools.reader]]
                  ; [com.climate/java.shell2 "0.1.0"]
                  ; [throttler "1.0.0"] ; enforce rate limiting on our use of external APIs
 
+                 [org.clojure/core.async "0.4.474"]
+                 [google-apps-clj "0.6.1"]
+                 [org.flatland/ordered "1.5.6"]
                  [camel-snake-kebab "0.4.0"]
                  [org.clojure/tools.reader "1.2.1"]
                  [stencil "0.5.0"] ; Mustache implementation

@@ -40,3 +40,12 @@
           (throw (ClassNotFoundException. (format "No function found for `%s`" qualified-name)))))
     (catch Exception _
       (throw (ClassNotFoundException. (format "No function found for `%s`" qualified-name))))))
+
+(defn safe-subs
+  [s start & [end]]
+  (when s
+    (let [len (count s)
+          end (min (or end len) len)]
+      (if (< start len)
+        (subs s start end)
+        ""))))

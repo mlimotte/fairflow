@@ -7,10 +7,10 @@
     [google-apps-clj.credentials :as gcreds]
     [google-apps-clj.google-sheets-v4 :as gsheet]
     [camel-snake-kebab.core :as csk]
-    [fair.util.lang :as lang]
+    [fair.flow.util.lang :as lang]
     [clj-time.core :as time])
   (:import
-    (com.google.api.services.sheets.v4.model CellData)))
+    com.google.api.services.sheets.v4.model.CellData))
 
 ;;; Extension to gsheets lib
 
