@@ -329,15 +329,17 @@
       / rule execution (this is just a subset of step fns)
   "
   [{:keys [datastore hooks] :as flow-engine} session flow step global]
-  (let [renderer (:renderer hooks)
-        context1 {:flow    (select-keys flow [:name])
-                  :step    (select-keys step [:name :args])
-                  :global  global
-                  :session {:step-state   (ds/get-step-state datastore session
-                                                             (:name flow) (:name step))
-                            :shared-state (ds/get-session-state datastore session)
-                            :id           (ds/session-id datastore session)}}
-        args     (if renderer (renderer context1 (:args step)) (:args step))]
+  (let [enrichment (:context-enrichment hooks)
+        renderer   (:renderer hooks)
+        context1   (-> {:flow    (select-keys flow [:name])
+                        :step    (select-keys step [:name :args])
+                        :global  global
+                        :session {:step-state   (ds/get-step-state datastore session
+                                                                   (:name flow) (:name step))
+                                  :shared-state (ds/get-session-state datastore session)
+                                  :id           (ds/session-id datastore session)}}
+                       (cond-> enrichment (enrichment session)))
+        args       (if renderer (renderer context1 (:args step)) (:args step))]
     (assoc context1 :args args)))
 
 (defn run-step
@@ -351,10 +353,10 @@
 
   (prn "MARC run-step session " session)
 
-  (let [step-fn       (get-step-fn aliases step)
-        flow-name     (:name flow)
-        step-idx      (:idx step)
-        step-name     (:name step)
+  (let [step-fn      (get-step-fn aliases step)
+        flow-name    (:name flow)
+        step-idx     (:idx step)
+        step-name    (:name step)
 
         ;session-id (ds/session-id datastore session)
         ;session-state (ds/get-session-state datastore session)
@@ -377,13 +379,9 @@
         ;step-res      (step-fn (partial mk-callback-str session-id flow-name step-name)
         ;                       context data session-state step-state)
 
-        enrichment-fn (:context-enrichment hooks)
-        context       (-> (full-context flow-engine session flow step global)
-                          (cond-> enrichment-fn (enrichment-fn session)))
-        step-res      (step-fn (partial mk-callback-str (get-in context [:session :id])
-                                        flow-name step-name)
-                               context data)
-        ]
+        context      (full-context flow-engine session flow step global)
+        callback-gen (partial mk-callback-str (get-in context [:session :id]) flow-name step-name)
+        step-res     (step-fn callback-gen context data)]
 
     ; Process results
     ; TODO catch errors, here or around entire fn; get an error handler

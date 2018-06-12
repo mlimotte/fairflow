@@ -31,11 +31,11 @@
   "OK")
 
 (defn events
-  [verification-token flow-engine enrichment-fn parse-trigger-fn]
+  [verification-token flow-engine parse-trigger-fn]
   (POST "/slack/events" req
     (let [request-body (:body req)]
       (if (token-valid? verification-token request-body)
-        (handle-event flow-engine enrichment-fn parse-trigger-fn req request-body)
+        (handle-event flow-engine parse-trigger-fn req request-body)
         {:status 400
          :body   "Verification token check failed."}))))
 
