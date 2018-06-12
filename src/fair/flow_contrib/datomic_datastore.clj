@@ -67,7 +67,7 @@
 (defn- step-state-key
   "Create the standard state key"
   ([session-id flow-name step-name]
-   (ds/mk-key session-id flow-name step-name)))
+   (ds/mk-dot-key session-id flow-name step-name)))
 
 (defn- store-step-state
   "Store the step state."

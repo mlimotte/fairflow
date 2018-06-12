@@ -98,13 +98,13 @@ main-menu:
     type: message
     args:
       # For this app (due to a plugable renderer) args are parsed as Mustache templates.
-      text: "{{session.profile.name}}, the time is {{#static.time-str}}X{{/static.time-str}}."
+      text: "{{session.shared-state.profile.name}}, the time is {{#global.time-str}}X{{/global.time-str}}."
     transitions:
       "*": main-menu.main-menu
   - name: date
     type: message
     args:
       # For this app (due to a plugable renderer) args are parsed as Mustache templates.
-      text: "{{session.profile.name}}, the date is {{#static.date-str}}{{/static.date-str}}."
+      text: "{{session.shared-state.profile.name}}, the date is {{#global.date-str}}{{/global.date-str}}."
     transitions:
       "*": main-menu.main-menu

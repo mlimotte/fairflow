@@ -33,7 +33,7 @@ Ideally, your Step functions are pure and side-effect free. The update state and
 
 It could be used for that, but I've tried to abstract those parts away. So if you want to use it to control a Slack bot, for example, that's doable, and that's one of the way's I've used it.  I've also used it to control user flows for a mobile app via a REST endpoint.
 
-### Why?  Is this another bot toolkit?
+### Why?
 
 This is not a botkit that determines user intent via NLP. Although, you could connect it to any library or service that offers NLP and intent determination and then use it to control the rest of the flow.
 

@@ -4,13 +4,21 @@
   (:require
     [clojure.string :as string]))
 
-(defn mk-key
+(defn mk-dot-key
   [& args]
   (string/join "." (map str args)))
 
-(defn parse-key
+(defn parse-dot-key
   [k]
   (string/split k #"\."))
+
+(defn mk-dash-key
+  [& args]
+  (string/join "-" (map str args)))
+
+(defn parse-dash-key
+  [k]
+  (string/split k #"-"))
 
 (defprotocol FlowEngineDatastore
   "Functions for managing state storage for the Flow Engine."

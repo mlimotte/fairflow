@@ -73,23 +73,32 @@
   (let [callback (parse-callback (mk-callback-str "101" "FN" "s4" "L1"))]
     (is (= (get callback :local) ["L1"]))))
 
+(deftype StaticDatastore [source]
+  ds/FlowEngineDatastore
+  (new-session [this flow-version flow-name step-name data] {})
+  (session-id [this session-id] (:id source))
+  (get-session [this session] source)
+  (get-session-state [this session] (:shared-state source))
+  (get-step-state [this session flow-name step-name] (:step-state source))
+  (store-session [this session flow-name step-name shared-state-mutations step-state] nil))
+
 (deftest test-process-actions
   (let [var1    (atom 0)
         var2    (atom 100)
-        context {:flow-name     "my-flow"
-                 :step-idx      0
-                 :step-name     "step1"
-                 :extra-context nil
-                 :args          {:extra 10}
-                 :trigger       "start"
-                 :session-id    "1"}]
+        context (full-context
+                  {:datastore (->StaticDatastore {:id           "1"
+                                                  :step-state   {}
+                                                  :shared-state {:x 50}})}
+                  nil
+                  {:name "my-flow"}
+                  {:name "step1" :args {:extra 10}}
+                  nil)]
 
     ; Test: actions as a collection of tuples
     (process-actions context
-                     {:increment-var1 (fn [_ _ v] (swap! var1 + v))
+                     {:increment-var1 (fn [_ v] (swap! var1 + v))
                       ; Test: Access a value in context
-                      :increment-var2 (fn [context _ v] (swap! var2 + v (-> context :args :extra)))}
-                     {}
+                      :increment-var2 (fn [context v] (swap! var2 + v (-> context :args :extra)))}
                      ; Test: Same action can be used multiple times
                      [[:increment-var1 5]
                       [:increment-var1 2]
@@ -99,27 +108,28 @@
 
     ; Test: actions can be a Map
     (process-actions context
-                     {:increment-var1 (fn [_ _ v] (swap! var1 + v))}
-                     {}
+                     {:increment-var1 (fn [_ v] (swap! var1 + v))}
                      {:increment-var1 100})
     (is (= @var1 107))
     (is (= @var2 112))
 
     ; Test: session state mutations
-    (let [var3    (atom 1000)
-          result (process-actions context
-                                  {:increment-var3 (fn [_ existing-state [k v]]
-                                                     (swap! var3 + (:x existing-state) v)
-                                                     (->ActionSessionMutation {:foo {k k}}))}
-                                  {:x 50}
-                                  [[:increment-var3 [:a 100]]
-                                   [:increment-var3 [:b 100]]])]
+    (let [var3   (atom 1000)
+          result (process-actions
+                   context
+                   {:increment-var3 (fn [context [k v]]
+
+                                      (swap! var3 + (get-in context [:session :shared-state :x]) v)
+                                      (->ActionSessionMutation {:foo {k k}}))}
+
+                   [[:increment-var3 [:a 100]]
+                    [:increment-var3 [:b 100]]])]
       (is (= @var3 1300))
       (= result {:foo {:a :a :b :b}}))
 
     ; Test: no handler for action
     (is (thrown? clojure.lang.ExceptionInfo
-                 (process-actions context {} {} {:foo 100})))))
+                 (process-actions context {} {:foo 100})))))
 
 (deftest test-parse-flow-step
   (are [x expected] (= (parse-flow-step x) expected)
@@ -208,8 +218,9 @@
       (swap! all-sessions assoc idx new-session))))
 
 (defn sample-step
-  [callback-gen context data session-state step-state]
-  (let [step-state {:foo (+ (:foo data 0) (:foo step-state 0))}]
+  [callback-gen {:keys [session]} data]
+  (let [step-state-in (:step-state session)
+        step-state    {:foo (+ (:foo data 0) (:foo step-state-in 0))}]
     (map->StepResult
       {:actions                {:samp "VALUE1"}
        :step-state             step-state
@@ -217,7 +228,7 @@
        :transition             "flow-c"})))
 
 (defn sample-handler
-  [calls context _ v]
+  [calls context v]
   (swap! calls conj [context v]))
 
 (deftest test-run-step
@@ -231,25 +242,25 @@
         dstore        (->SampleDatastore all-sessions)
         new-session   (ds/new-session dstore nil nil nil nil)
         handler-calls (atom [])
-        extra-context {:extra-context "req1"}]
+        global        {:extra "req1"}]
     (run-step {:flow-config fconfig
                :aliases     {"steppy" fair.flow.test-engine/sample-step}
                :handlers    {:samp (partial fair.flow.test-engine/sample-handler handler-calls)}
                :datastore   dstore}
               new-session
-              extra-context
-              "start"
+              global
               {:foo 10}
               (:flow-b fconfig)
-              (-> fconfig :flow-b :steps first))
+              (-> fconfig :flow-b :steps first)
+              "start")
 
     ; Actions/Handlers
     (is (= (count @handler-calls) 2))
     (is (= (-> @handler-calls first second) "VALUE1"))
-    (let [context2 (-> @handler-calls second first)]
-      (is (= (-> context2 :flow-name) "flow-c"))
-      (is (= (-> context2 :step-name) "C"))
-      (is (= (-> context2 :extra-context) extra-context)))
+    (let [context-result (-> @handler-calls second first)]
+      (is (= (-> context-result :flow :name) "flow-c"))
+      (is (= (-> context-result :step :name) "C"))
+      (is (= (-> context-result :global) global)))
     (is (= (-> @handler-calls second second) "VALUE1"))
 
     ; Shared session state

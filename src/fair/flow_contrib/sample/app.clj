@@ -29,35 +29,36 @@
 
 (defn console-read-line
   "Read a line from the console and put it on the core.async channel"
-  [context session-state callback-str]
+  [context callback-str]
   (print "\n=> ")
-  (let [c    (get-in context [:extra-context :read-ch])
+  (let [c    (get-in context [:global :read-ch])
         line (read-line)]
     (async/go (async/>! c [callback-str line]))))
 
 (defn message-step
-  [callback-gen context data session-state step-state]
+  [callback-gen context data]
   (engine/map->StepResult
     {:actions    {:send-message {:text (-> context :args :text)}}
      :transition "ok"}))
 
 (defn prompt-step
-  [callback-gen {:keys [args] :as context} msg session-state step-state]
-  (if (::wait-for step-state)
-    (let [save-key (engine/key-path (:save-key args))]
-      (if (string/blank? msg)
-        (engine/map->StepResult
-          {:step-state {::wait-for nil}
-           :transition "blank"})
-        (engine/map->StepResult
-          ; TODO save-key should be a PATH --- fixme
-          {:shared-state-mutations (assoc-in {} save-key msg)
-           :step-state             {::wait-for nil}
-           :transition             "ok"})))
-    (engine/map->StepResult
-      {:actions    {:send-message (select-keys args [:text])
-                    :read-line    (callback-gen)}
-       :step-state {::wait-for :response}})))
+  [callback-gen {:keys [args session] :as context} msg]
+  (let [step-state (:step-state session)]
+    (if (::wait-for step-state)
+      (let [save-key (engine/key-path (:save-key args))]
+        (if (string/blank? msg)
+          (engine/map->StepResult
+            {:step-state {::wait-for nil}
+             :transition "blank"})
+          (engine/map->StepResult
+            ; TODO save-key should be a PATH --- fixme
+            {:shared-state-mutations (assoc-in {} save-key msg)
+             :step-state             {::wait-for nil}
+             :transition             "ok"})))
+      (engine/map->StepResult
+        {:actions    {:send-message (select-keys args [:text])
+                      :read-line    (callback-gen)}
+         :step-state {::wait-for :response}}))))
 
 (defn- show-menu
   [args callback-str]
@@ -75,15 +76,16 @@
                     ::options  options}})))
 
 (defn menu-step
-  [callback-gen {:keys [args] :as context} msg session-state step-state]
-  (if (::wait-for step-state)
-    (let [n (lang/as-long msg)]
-      (if-not n
-        (show-menu args (callback-gen))
-        (engine/map->StepResult
-          {:step-state {::wait-for nil :options nil}
-           :transition (lang/simple-kebab (nth (::options step-state) n))})))
-    (show-menu args (callback-gen))))
+  [callback-gen {:keys [args session] :as context} msg]
+  (let [step-state (:step-state session)]
+    (if (::wait-for step-state)
+      (let [n (lang/as-long msg)]
+        (if-not n
+          (show-menu args (callback-gen))
+          (engine/map->StepResult
+            {:step-state {::wait-for nil :options nil}
+             :transition (lang/simple-kebab (nth (::options step-state) n))})))
+      (show-menu args (callback-gen)))))
 
 (def time-fmt (java.text.SimpleDateFormat. "HH:mm"))
 (defn time-str
@@ -96,7 +98,7 @@
   (.format date-fmt (Date.)))
 
 (defn callback-loop
-  [flow-engine {:keys [read-ch] :as extra-context}]
+  [flow-engine {:keys [read-ch] :as global}]
   (while true
     (let [[callback-str msg] (async/<!! read-ch)
           callback (engine/parse-callback callback-str)]
@@ -108,7 +110,7 @@
         (if flow
           (future
             (try
-              (engine/run-step flow-engine session extra-context callback msg flow step)
+              (engine/run-step flow-engine session global msg flow step callback)
               (catch Throwable t
                 (log/error t "Unknown exception running step."))))
           (log/warn "No flow found in config which matches flow-name in the callback"
@@ -117,7 +119,7 @@
 
 (defn my-flow-engine
   [flow-config]
-  (let [flow-version (engine/flow-version flow-config)
+  (let [flow-version (engine/hash-for-version flow-config)
         datomic-conn (datomicds/setup "datomic:mem://fairflow-sample")
         datastore    (datomicds/->DatomicDatastore datomic-conn)
         handlers     {:send-message handlers/console-message
@@ -127,9 +129,7 @@
       {:datastore                    datastore
        :flow-config                  flow-config
        :flow-version                 flow-version
-       :static-interpolation-context {:time-str time-str
-                                      :date-str date-str}
-       :renderer                     mustache-render/deep-string-values-render
+       :hooks                        {:renderer mustache-render/deep-string-values-render}
        ; The values of the alias Map can be functions or Vars
        :aliases                      {"menu"    menu-step
                                       "prompt"  prompt-step
@@ -157,27 +157,31 @@
   ; Note: While this sample app reads flow config from a YAML file, the Flow Engine does
   ;       does not care. You could get your flow config from a JSON or a Google Sheet or
   ;       whatever.
-  (let [flow-config   (-> flow-config-filename
-                          (yaml/from-file true)
-                          engine/normalize-flow-config)
-        _             (when-not flow-config
-                        (throw (RuntimeException.
-                                 (format "Error: Could not load flow config; expecting YAML file `%s`"
-                                         flow-config-filename))))
-        engine        (my-flow-engine flow-config)
-        extra-context {:read-ch (async/chan)}
-        loop          (future (callback-loop engine extra-context))]
+  (let [flow-config (-> flow-config-filename
+                        (yaml/from-file true)
+                        engine/normalize-flow-config)
+        _           (when-not flow-config
+                      (throw (RuntimeException.
+                               (format "Error: Could not load flow config; expecting YAML file `%s`"
+                                       flow-config-filename))))
+        engine      (my-flow-engine flow-config)
+        global      {:read-ch (async/chan)
+                     :time-str time-str
+                     :date-str date-str}
+        loop        (future (callback-loop engine global))]
 
     ; There are generally two entry points to the flow engine.
     ; The first triggers new sessions...
-    (engine/trigger-init engine "session-start"
-                         extra-context
+    (engine/trigger-init engine
+                         "session-start"
+                         global
                          nil)
+
     ; The second is for callbacks...
     @loop
     ; A Slack bot, for example, could do `trigger-init` based on the Slack events api,
     ; while callbacks are triggered by the Slack "interactives" webhook.
 
     (println "Shutdown.")
-    (async/close! (:read-ch extra-context))
+    (async/close! (:read-ch global))
     ))

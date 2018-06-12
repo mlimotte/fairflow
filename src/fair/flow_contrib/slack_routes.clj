@@ -11,38 +11,41 @@
   (let [token-in (:token event)]
     (= token-in verification-token)))
 
-(defmulti handle-event (fn [flow-engine req event]
+(defmulti handle-event (fn [flow-engine parse-trigger-fn req event]
                          [(get event :type) (get-in event [:event :type])]))
 
 (defmethod handle-event ["url_verification" nil]
-  [_ _ event]
+  [_ _ _ event]
   {:status 200
    :body   {:challenge (:challenge event)}})
 
 (defmethod handle-event ["event_callback" "app_mention"]
-  [flow-engine req event]
+  [flow-engine parse-trigger-fn req event]
   (log/info "app_mention received" event)
-  (engine/trigger-init flow-engine "session-start" req event)
+  (engine/trigger-init flow-engine (parse-trigger-fn req) req event)
   {:status 200 :body "OK"})
 
 (defmethod handle-event :default
-  [_ _ event]
+  [_ _ _ event]
   (log/info "Unhandled event type " (:type event))
   "OK")
 
 (defn events
-  [verification-token flow-engine]
+  [verification-token flow-engine enrichment-fn parse-trigger-fn]
   (POST "/slack/events" req
     (let [request-body (:body req)]
       (if (token-valid? verification-token request-body)
-        (handle-event flow-engine req request-body)
+        (handle-event flow-engine enrichment-fn parse-trigger-fn req request-body)
         {:status 400
          :body   "Verification token check failed."}))))
 
 (defn interactives
   [flow-engine]
   (POST "/slack/interactives" req
-    (let [payload  (-> req :params (get "payload") (json/read-str :key-fn keyword))
+    (prn "MARC interactives req"
+         (some-> req :params (get "payload") )
+         )
+    (let [payload  (some-> req :params :payload (json/read-str :key-fn keyword))
           ; Also consider capturing :trigger_id, :response_url
           ;   response_url: if we want to overwrite previous interactive message item
           ;   trigger_id: is for dialogs
@@ -76,7 +79,7 @@
           (if flow
             (future
               (try
-                (engine/run-step flow-engine session req callback payload flow step)
+                (engine/run-step flow-engine session req payload flow step callback)
                 (catch Throwable t
                   (log/error t "Unknown exception running step."))))
             (log/warn "No flow found in config which matches flow-name in the callback"

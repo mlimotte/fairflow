@@ -68,9 +68,9 @@
 
 (defn slack-send-message-handler
   "An action handler for sending Slack messages."
-  [token context session-state payload]
+  [token {:keys [session]} payload]
   (let [message-id  (::message-id payload)
-        existing-ts (get-in session-state [::messages message-id])
+        existing-ts (get-in session [:shared-state ::messages message-id])
         api-method  (::api-method payload)
         ; If this is a chat.postMessage and we have an existing ts, let's do an update instead
         api-method  (if (and existing-ts (= api-method "chat.postMessage"))
@@ -80,8 +80,14 @@
                                   api-method
                                   (-> payload
                                       (dissoc ::api-method ::message-id)
-                                      (assoc :ts existing-ts)))]
-    (prn "MARC response -- get `ts`" response)
+                                      (assoc :ts existing-ts)))
+        response-body (some-> response :body (json/read-str :key-fn keyword) )
+        ts (:ts response-body)
+        ]
+    (prn "MARC response -- get `ts`"
+         ts
+         response-body)
+
     ; Save the ts in ::messages if message-id is set.
     (if message-id
       (let [ts 1]
@@ -93,7 +99,8 @@
 
 ; payload has only been tested with these Slack message types, add more as they are tested.
 (spec/fdef slack-send-message-handler
-           :args (spec/cat :context ::engine/context
+           :args (spec/cat :token ::fus/non-blank-str
+                           :context ::engine/context
                            :payload (spec/keys :req [::api-method])))
 (spec/def ::api-method #{"chat.postMessage"
                          "dialog.open"})
@@ -137,22 +144,23 @@
 (defn menu-step
   "A Flow Step fn which creates a Menu message.
   A menu is generally a set of buttons."
-  [callback-gen {step-args :args} slack-event _ step-state]
-  (log/debug "Menu" (:text step-args) step-state)
-  (if (get step-state :wait-on-response)
-    (let [action-name (-> slack-event :actions first :name)]
-      (log/debug "slack-event: " slack-event)
+  [callback-gen {step-args :args session :session} slack-event]
+  (let [step-state (:step-state session)]
+    (log/debug "Menu" (:text step-args) step-state)
+    (if (get step-state :wait-on-response)
+      (let [action-name (-> slack-event :actions first :name)]
+        (log/debug "slack-event: " slack-event)
+        (engine/map->StepResult
+          {:transition action-name}))
       (engine/map->StepResult
-        {:transition action-name}))
-    (engine/map->StepResult
-      {:actions    {:slack-send-message
-                    {::api-method "chat.postMessage"
-                     :channel     (get-channel slack-event)
-                     :attachments [{:text        (:text step-args)
-                                    :color       (:color step-args)
-                                    :callback_id (callback-gen)
-                                    :actions     (mapv button (:options step-args))}]}}
-       :step-state {:wait-on-response true}})))
+        {:actions    {:slack-send-message
+                      {::api-method "chat.postMessage"
+                       :channel     (get-channel slack-event)
+                       :attachments [{:text        (:text step-args)
+                                      :color       (:color step-args)
+                                      :callback_id (callback-gen)
+                                      :actions     (mapv button (:options step-args))}]}}
+         :step-state {:wait-on-response true}}))))
 
 (spec/def :fair.flow.slack.menu/args
   (spec/keys :opt-un [::text ::options]))
@@ -160,10 +168,10 @@
            ::args (spec/and ::engine/nil-kw-map
                             (spec/tuple any?
                                         (spec/keys :req-un [:fair.flow.slack.menu/args])
-                                        any? any? any?)))
+                                        any?)))
 
 (defn message-step
-  [callback-gen {:keys [args]} slack-event _ _]
+  [callback-gen {:keys [args]} slack-event]
   (engine/map->StepResult
     {:actions                {:slack-send-message
                               (-> args
@@ -177,7 +185,7 @@
 
      :transition             true}))
 
-; Note: This is a partial validation, we do not check all of Slack's rules, for
+; Note: This is a partial validation, we do not check all of Slack's rules; for
 ;   fear of getting out of sync.
 (create-ns 'fair.flow.slack.dialog)
 (alias 'dialog 'fair.flow.slack.dialog)
@@ -192,7 +200,6 @@
 (spec/def ::dialog/name ::fus/non-blank-str)
 (spec/def ::dialog/label ::dialog/title)
 
-
 (defn deep-key-kebab
   "Recursively transforms all map keys from strings to kebab-case keywords.
   key-fn is a function of the key, e.g. `csk/->kebab-case-keyword` or
@@ -206,34 +213,35 @@
   "Display a Slack dialog.
   session-state: Saves the submission result at the key named by the `save-key` arg.
   transition-value: `true` if dialog submission is saved; `false` if dialog was cancelled."
-  [callback-gen {:keys [args]} slack-event _ step-state]
+  [callback-gen {:keys [args session]} slack-event]
   ; TODO spec validate requirements of slack-event for both cases
-  (if (get step-state :wait-on-response)
-    (let [save-as    (keyword (:save-key args))
-          submission (:submission slack-event)
-          mutation   {save-as submission}]
-      (if (= (:type slack-event) "dialog_cancellation")
-        (do
-          (log/info "Dialog was cancelled")
+  (let [step-state (:step-state session)]
+    (if (get step-state :wait-on-response)
+      (let [save-as    (keyword (:save-key args))
+            submission (:submission slack-event)
+            mutation   {save-as submission}]
+        (if (= (:type slack-event) "dialog_cancellation")
+          (do
+            (log/info "Dialog was cancelled")
+            (engine/map->StepResult
+              {:transition false
+               :step-state {:wait-on-response false}}))
+          (do
+            (log/info "Received dialog submission, session mutations:" mutation)
+            (engine/map->StepResult
+              {:transition             true
+               :step-state             {:wait-on-response false}
+               :shared-state-mutations mutation}))))
+      (if (spec/valid? ::slack-dialog (:message args))
+        (let [dialog (-> (:message args)
+                         (assoc :callback_id (callback-gen))
+                         (assoc :notify_on_cancel true)
+                         (->> (deep-key-kebab csk/->snake_case_keyword)))]
           (engine/map->StepResult
-            {:transition false
-             :step-state {:wait-on-response false}}))
-        (do
-          (log/info "Received dialog submission, session mutations:" mutation)
-          (engine/map->StepResult
-            {:transition             true
-             :step-state             {:wait-on-response false}
-             :shared-state-mutations mutation}))))
-    (if (spec/valid? ::slack-dialog (:message args))
-      (let [dialog (-> (:message args)
-                       (assoc :callback_id (callback-gen))
-                       (assoc :notify_on_cancel true)
-                       (->> (deep-key-kebab csk/->snake_case_keyword)))]
-        (engine/map->StepResult
-          {:actions    {:slack-send-message
-                        {::api-method "dialog.open"
-                         :trigger_id  (:trigger_id slack-event)
-                         :dialog      dialog}}
-           :step-state {:wait-on-response true}}))
-      (engine/throw-misconfig "Dialog spec is not valid."
-                             {:explanation (spec/explain-str ::slack-dialog (:message args))}))))
+            {:actions    {:slack-send-message
+                          {::api-method "dialog.open"
+                           :trigger_id  (:trigger_id slack-event)
+                           :dialog      dialog}}
+             :step-state {:wait-on-response true}}))
+        (engine/throw-misconfig "Dialog spec is not valid."
+                                {:explanation (spec/explain-str ::slack-dialog (:message args))})))))
