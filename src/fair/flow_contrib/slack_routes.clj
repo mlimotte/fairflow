@@ -22,7 +22,7 @@
 (defmethod handle-event ["event_callback" "app_mention"]
   [flow-engine parse-trigger-fn req event]
   (log/info "app_mention received" event)
-  (engine/trigger-init flow-engine (parse-trigger-fn req) req event)
+  (engine/trigger-init flow-engine (parse-trigger-fn req) nil event)
   {:status 200 :body "OK"})
 
 (defmethod handle-event :default
@@ -34,6 +34,7 @@
   [verification-token flow-engine parse-trigger-fn]
   (POST "/slack/events" req
     (let [request-body (:body req)]
+      ; TODO dedupe incoming slack events-- maybe keep LRU of incoming event id (-> request-body :event :ts)
       (if (token-valid? verification-token request-body)
         (handle-event flow-engine parse-trigger-fn req request-body)
         {:status 400
@@ -42,9 +43,7 @@
 (defn interactives
   [flow-engine]
   (POST "/slack/interactives" req
-    (prn "MARC interactives req"
-         (some-> req :params (get "payload") )
-         )
+    ; TODO dedupe incoming slack events-- maybe keep LRU of incoming event id (:action_ts ?)
     (let [payload  (some-> req :params :payload (json/read-str :key-fn keyword))
           ; Also consider capturing :trigger_id, :response_url
           ;   response_url: if we want to overwrite previous interactive message item
@@ -79,7 +78,7 @@
           (if flow
             (future
               (try
-                (engine/run-step flow-engine session req payload flow step callback)
+                (engine/run-step flow-engine session nil payload flow step callback)
                 (catch Throwable t
                   (log/error t "Unknown exception running step."))))
             (log/warn "No flow found in config which matches flow-name in the callback"

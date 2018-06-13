@@ -82,20 +82,10 @@
                                       (dissoc ::api-method ::message-id)
                                       (assoc :ts existing-ts)))
         response-body (some-> response :body (json/read-str :key-fn keyword) )
-        ts (:ts response-body)
-        ]
-    (prn "MARC response -- get `ts`"
-         ts
-         response-body)
-
+        ts (:ts response-body)]
     ; Save the ts in ::messages if message-id is set.
     (if message-id
-      (let [ts 1]
-        ; TODO fix ts
-        (engine/->ActionSessionMutation {::messages {message-id ts}})
-        )
-      )
-    ))
+      (engine/->ActionSessionMutation {::messages {message-id ts}}))))
 
 ; payload has only been tested with these Slack message types, add more as they are tested.
 (spec/fdef slack-send-message-handler
@@ -124,13 +114,13 @@
 (defn button
   "Create a Slack button. `spec` can be a String which is used as the text and name,
   or it can be a Map with keys for text, name (optional), value (optional)."
-  [spec]
-  (let [{nm :name text :text value :value}
-        (if (map? spec) spec {:text spec})]
+  [btn-spec]
+  (let [{nm :name text :text value :value} (if (map? btn-spec) btn-spec {:text btn-spec})
+        final-name (or nm text)]
     (lang/not-nil {:type  "button"
                    :text  text
-                   :name  (or nm (csk/->kebab-case text))
-                   :value value})))
+                   :name  final-name
+                   :value (or value final-name)})))
 
 (spec/fdef button
            :args (spec/cat :button-spec

@@ -33,15 +33,6 @@
 
 (defrecord Callback [session-id flow-name step-name local])
 
-;(spec/def ::context
-;  (spec/keys :req-un [::flow-name ::step-idx ::step-name ::extra
-;                      ::args ::trigger ::session-id]))
-;(spec/def ::flow-name ::fus/non-blank-str)
-;(spec/def ::step-idx int?)
-;(spec/def ::step-name ::fus/non-blank-str)
-;(spec/def ::extra (spec/nilable map?))
-;(spec/def ::args (spec/nilable map?))
-;(spec/def ::trigger (spec/or :name ::fus/non-blank-str :callback (partial instance? Callback)))
 (spec/def ::context
   (spec/keys :req-un [::flow ::step ::global ::session ::args]))
 (spec/def ::flow (spec/keys :req-un [::name]))
@@ -54,10 +45,6 @@
 ; wouldn't be able to parse it out of the callback id.
 (spec/def ::id (partial re-find #"^[^\.]+$"))
 
-; Session key must be a non-blank string and can not contain dots (otherwise we
-; wouldn't be able to parse it out of the callback id.
-;(spec/def ::session-id (partial re-find #"^[^\.]+$"))
-
 (spec/def ::step-fn-args
   (spec/cat :callback-gen fn?
             :context ::context
@@ -69,13 +56,8 @@
   [msg & [data]]
   (throw (ex-info msg (assoc data ::type ::misconfiguration))))
 
-(defn node-name
-  "Produce a node name based on the flow and step specified in the context.
-  This is mainly for logs and error messages."
-  [context]
-  (format "Node[%s/%s/%s]" (:flow-name context) (:step-name context) (:step-idx context)))
-
 (defn key-path
+  "A helper to parse a string into a path for use with `get-in`."
   [s]
   (cond
     (and (string? s) (string/blank? s))
@@ -131,9 +113,6 @@
   "Find flows in the config that match the given trigger.
   `trigger` can be a String (test for equality) or a vector (test for presence)."
   [flow-config trigger]
-
-  (prn "MARC 1 trigger  " trigger flow-config)
-
   (filter
     (fn [{flow-trigger :trigger}]
       (or (= flow-trigger trigger)
@@ -165,26 +144,6 @@
   (let [[session-id flow-name step-name & local] (ds/parse-dot-key s)]
     (->Callback session-id flow-name step-name local)))
 
-;(defn process-actions
-;  "Process the actions using the given context and handlers.
-;  handlers that return ActionSessionMutation objects, will have those results
-;  merged (in order), with the merged result used as return value of this
-;  function.
-;  Returns: A Map of shared session state mutations."
-;  [context handlers session-state actions]
-;  (->>
-;    (for [[k v] actions
-;          :let [handler (handlers k)]]
-;      (if handler
-;        (do (log/info "Running handler for" k)
-;            (let [action-result (handler context session-state v)]
-;              (if (instance? ActionSessionMutation action-result)
-;                action-result)))
-;        (throw-misconfig "No handler for action"
-;                         {:action-name k
-;                          :node        (node-name context)})))
-;    doall
-;    (apply merge-with lang/merge-maps)))
 (defn process-actions
   "Process the actions using the given context and handlers.
   handlers that return ActionSessionMutation objects, will have those results
@@ -197,22 +156,19 @@
           :let [handler (handlers k)]]
       (if handler
         (do (log/info "Running handler for" k)
-            (let [
-                  ;action-result (handler context (get-in context [:session :shared-state]) v)
-                  action-result (handler context v)
-                  ]
+            (let [action-result (handler context v)]
               (if (instance? ActionSessionMutation action-result)
                 action-result)))
         (throw-misconfig "No handler for action"
                          {:action-name k
-                          :node        (node-name context)})))
+                          :flow        (-> context :flow :name)
+                          :step        (-> context :step :name)})))
     doall
     (apply merge-with lang/merge-maps)))
 
 (spec/fdef process-actions
            :args (spec/cat :context ::context
                            :handlers (spec/map-of keyword? fn?)
-                           ;:session-state (spec/nilable map?)
                            :actions ::actions))
 
 (defn parse-flow-step
@@ -233,7 +189,7 @@
   `trans-value` is the `:transition` from the last StepResult."
   [flow-config current-flow step-name current-step-idx trans-value]
 
-  ; TODO A single string as transition_config should become {"*" STRING_VAL}
+  ; TODO (maybe) A single string as transition_config should become {"*" STRING_VAL}
   ;    - Special value `*` in map check should match any non-nil trans-value (iff there is no exact match)
 
   ; Step Functions need to return non-nil, in order for a transition config to be considered.
@@ -296,7 +252,7 @@
                   (and new-flow? (-> new-flow? :steps first))
                   [new-flow? (-> new-flow? :steps first)]
 
-                  ; else error
+                  ; otherwise error
                   :else
                   ; In the case of an explicit step-specifier (not `next`), if there is no Step
                   ; then that is a Misconfiguration error.
@@ -321,13 +277,10 @@
       ret-val)))
 
 (defn full-context
-  "
-  Use this one fn for all of:
-      - step fn calls (in run-step)
-      - render (in run-step)
-      - handlers (in run-step)
-      / rule execution (this is just a subset of step fns)
-  "
+  "Create the common context object that is used as input for:
+    - step fn calls (in run-step)
+    - render (in run-step)
+    - handlers (in run-step)"
   [{:keys [datastore hooks] :as flow-engine} session flow step global]
   (let [enrichment (:context-enrichment hooks)
         renderer   (:renderer hooks)
@@ -350,35 +303,10 @@
    session global data flow step trigger
    & [depth]]
   (log/infof "Running step %s/%s" (:name flow) (:name step))
-
-  (prn "MARC run-step session " session)
-
   (let [step-fn      (get-step-fn aliases step)
         flow-name    (:name flow)
         step-idx     (:idx step)
         step-name    (:name step)
-
-        ;session-id (ds/session-id datastore session)
-        ;session-state (ds/get-session-state datastore session)
-        ;step-state    (ds/get-step-state datastore session flow-name step-name)
-        ;context       {:flow-name  flow-name
-        ;               :step-idx   step-idx
-        ;               :step-name  step-name
-        ;               :extra      extra
-        ;               :args       (if renderer (renderer
-        ;                                          session
-        ;                                          {:session   session-state
-        ;                                           :step      step-state
-        ;                                           :flow      flow
-        ;                                           :step-name step-name
-        ;                                           :static    static-interpolation-context}
-        ;                                          (:args step))
-        ;                                        (:args step))
-        ;               :trigger    trigger
-        ;               :session-id session-id}
-        ;step-res      (step-fn (partial mk-callback-str session-id flow-name step-name)
-        ;                       context data session-state step-state)
-
         context      (full-context flow-engine session flow step global)
         callback-gen (partial mk-callback-str (get-in context [:session :id]) flow-name step-name)
         step-res     (step-fn callback-gen context data)]
@@ -387,10 +315,7 @@
     ; TODO catch errors, here or around entire fn; get an error handler
     ;      from `handlers` (also do a log/error)
     (let [session-mutations-from-actions
-          ;(process-actions context handlers (get-in context [:session :shared-state])
-          ;                 (:actions step-res))
-          (process-actions context handlers (:actions step-res))
-          ]
+          (process-actions context handlers (:actions step-res))]
 
       ; Update state
       (let [{session-mutations-from-step :shared-state-mutations step-state :step-state} step-res

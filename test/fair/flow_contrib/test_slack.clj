@@ -8,11 +8,12 @@
   (is (= (button "Hello Foo")
          {:type  "button"
           :text  "Hello Foo"
-          :name  "hello-foo"}))
+          :name  "Hello Foo"
+          :value "Hello Foo"}))
   (is (= (button {:text "Hello Foo" :value "A"})
          {:type  "button"
           :text  "Hello Foo"
-          :name  "hello-foo"
+          :name  "Hello Foo"
           :value "A"})))
 
 (deftest test-deep-key-transform
