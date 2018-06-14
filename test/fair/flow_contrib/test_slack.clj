@@ -17,9 +17,7 @@
           :value "A"})))
 
 (deftest test-deep-key-transform
-         (is (= (deep-key-kebab
-                  csk/->snake_case_keyword
-                  {:aA        {"foo-bar" 1},
-                   "baz_quux" "other-1"})
-                {:a_a      {:foo_bar 1},
-                 :baz_quux "other-1"})))
+  (is (= (deep-key-xform csk/->snake_case_keyword {:aA {"foo-bar" 1}, "baz_quux" "other-1"})
+         {:a_a {:foo_bar 1}, :baz_quux "other-1"}))
+  (is (= (deep-key-xform name {:foo [{:x 1 :y {:a 2}} {:z 3}]})
+         {"foo" [{"x" 1, "y" {"a" 2}} {"z" 3}]})))

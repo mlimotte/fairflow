@@ -190,8 +190,8 @@
 (spec/def ::dialog/name ::fus/non-blank-str)
 (spec/def ::dialog/label ::dialog/title)
 
-(defn deep-key-kebab
-  "Recursively transforms all map keys from strings to kebab-case keywords.
+(defn deep-key-xform
+  "Recursively transforms all map keys from strings to some other form.
   key-fn is a function of the key, e.g. `csk/->kebab-case-keyword` or
   `csk/->snake_case_keyword`.
   Incoming keys can start as Strings or keywords."
@@ -226,7 +226,7 @@
         (let [dialog (-> (:message args)
                          (assoc :callback_id (callback-gen))
                          (assoc :notify_on_cancel true)
-                         (->> (deep-key-kebab csk/->snake_case_keyword)))]
+                         (->> (deep-key-xform csk/->snake_case_keyword)))]
           (engine/map->StepResult
             {:actions    {:slack-send-message
                           {::api-method "dialog.open"
