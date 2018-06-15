@@ -98,7 +98,7 @@
   (.format date-fmt (Date.)))
 
 (defn callback-loop
-  [flow-engine {:keys [read-ch] :as global}]
+  [flow-engine read-ch]
   (while true
     (let [[callback-str msg] (async/<!! read-ch)
           callback (engine/parse-callback callback-str)]
@@ -110,7 +110,7 @@
         (if flow
           (future
             (try
-              (engine/run-step flow-engine session global msg flow step callback)
+              (engine/run-step flow-engine session msg flow step callback)
               (catch Throwable t
                 (log/error t "Unknown exception running step."))))
           (log/warn "No flow found in config which matches flow-name in the callback"
@@ -118,7 +118,7 @@
         (println ".")))))
 
 (defn my-flow-engine
-  [flow-config]
+  [flow-config read-ch]
   (let [flow-version (engine/hash-for-version flow-config)
         datomic-conn (datomicds/setup "datomic:mem://fairflow-sample")
         datastore    (datomicds/->DatomicDatastore datomic-conn)
@@ -126,15 +126,18 @@
                       :read-line    console-read-line
                       :pause        handlers/pause-millis-handler}]
     (engine/map->FlowEngine
-      {:datastore                    datastore
-       :flow-config                  flow-config
-       :flow-version                 flow-version
-       :hooks                        {:renderer mustache-render/deep-string-values-render}
+      {:datastore    datastore
+       :flow-config  flow-config
+       :flow-version flow-version
+       :hooks        {:renderer mustache-render/deep-string-values-render}
        ; The values of the alias Map can be functions or Vars
-       :aliases                      {"menu"    menu-step
-                                      "prompt"  prompt-step
-                                      "message" message-step}
-       :handlers                     handlers})))
+       :aliases      {"menu"    menu-step
+                      "prompt"  prompt-step
+                      "message" message-step}
+       :handlers     handlers
+       :global       {:read-ch  read-ch
+                      :time-str time-str
+                      :date-str date-str}})))
 
 (defn setup-logging!
   []
@@ -164,17 +167,18 @@
                       (throw (RuntimeException.
                                (format "Error: Could not load flow config; expecting YAML file `%s`"
                                        flow-config-filename))))
-        engine      (my-flow-engine flow-config)
-        global      {:read-ch (async/chan)
-                     :time-str time-str
-                     :date-str date-str}
-        loop        (future (callback-loop engine global))]
+        read-ch     (async/chan)
+        engine      (my-flow-engine flow-config read-ch)
+
+        ;global      {:read-ch  (async/chan)
+        ;             :time-str time-str
+        ;             :date-str date-str}
+        loop        (future (callback-loop engine read-ch))]
 
     ; There are generally two entry points to the flow engine.
     ; The first triggers new sessions...
     (engine/trigger-init engine
                          "session-start"
-                         global
                          nil)
 
     ; The second is for callbacks...
@@ -183,5 +187,5 @@
     ; while callbacks are triggered by the Slack "interactives" webhook.
 
     (println "Shutdown.")
-    (async/close! (:read-ch global))
+    (async/close! read-ch)
     ))

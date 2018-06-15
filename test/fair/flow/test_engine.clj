@@ -246,9 +246,9 @@
     (run-step {:flow-config fconfig
                :aliases     {"steppy" fair.flow.test-engine/sample-step}
                :handlers    {:samp (partial fair.flow.test-engine/sample-handler handler-calls)}
-               :datastore   dstore}
+               :datastore   dstore
+               :global      global}
               new-session
-              global
               {:foo 10}
               (:flow-b fconfig)
               (-> fconfig :flow-b :steps first)
@@ -293,6 +293,5 @@
          :handlers    {:samp (partial fair.flow.test-engine/sample-handler handler-calls)}
          :datastore   dstore})
       "foo"
-      {}
       {:foo 5})
     (is (= (count @all-sessions) 2))))

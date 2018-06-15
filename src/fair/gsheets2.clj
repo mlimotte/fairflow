@@ -211,7 +211,7 @@
 
     row-filter ((List[Keywords], Vector[Cell]) -> any): Cell is a Google Apps cell
       object (see cell->clj). A fn of header keys and cells; only rows for which
-      this function return truthy will be returned in the result.
+      this function returns truthy will be returned in the result.
 
     skip-if-X-in (Keyword): If the named column contains an \"X\" (capital), the
       row is skipped. This functionality could be done with a `row-filter`, but
@@ -226,15 +226,16 @@
                                     (mapv csk/->kebab-case-keyword)))
                            assert-non-blank!
                            assert-unique!)]
-    (->> (cond->> all-data-cells
-                  (not headers) rest
-                  row-filter (filter (partial row-filter header-keys)))
-         (mapv (partial mapv cell->clj))
-         (map (partial zipmap header-keys))
+    (->> all-data-cells
          ; embed a row index into each record for tracking
-         (map-indexed (fn [idx record]
-                        ; `inc idx` to account for header
-                        (assoc record ::row-idx (inc idx))))
+         (map-indexed vector)
+         (#(cond->> %
+                    (not headers) rest
+                    row-filter (filter (comp (partial row-filter header-keys) second))))
+         (map (fn [[idx record]] [idx (mapv cell->clj record)]))
+         (map (fn [[idx record]]
+                (assoc (zipmap header-keys record) ::row-idx idx)))
+
          ; Allow skipping of additional header/comment/total rows
          (remove #(= (get % skip-if-X-in) "X"))
          doall)))

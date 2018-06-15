@@ -15,7 +15,7 @@
   ;       Map that will be used for steps, actions, rendering, etc.
   ;     :renderer (fn) - A function of the Context and a structure whose strings
   ;       should be rendered with interpolation.
-  [datastore flow-config flow-version hooks aliases handlers])
+  [datastore flow-config flow-version hooks aliases handlers global])
 
 (defrecord StepResult [actions transition shared-state-mutations step-state])
 
@@ -34,16 +34,19 @@
 (defrecord Callback [session-id flow-name step-name local])
 
 (spec/def ::context
-  (spec/keys :req-un [::flow ::step ::global ::session ::args]))
+  (spec/keys :req-un [::flow ::step ::global ::session]
+             :opt-un [::args]))
 (spec/def ::flow (spec/keys :req-un [::name]))
-(spec/def ::step (spec/keys :req-un [::name ::args]))
+(spec/def ::step (spec/keys :req-un [::name]
+                            :opt-un [::args]))
 (spec/def ::global (spec/nilable map?))
-(spec/def ::args (spec/nilable map?))
-(spec/def ::trigger (spec/or :name ::fus/non-blank-str :callback (partial instance? Callback)))
 (spec/def ::session (spec/keys :req-un [::step-state ::shared-state ::id]))
 ; Session key must be a non-blank string and can not contain dots (otherwise we
 ; wouldn't be able to parse it out of the callback id.
 (spec/def ::id (partial re-find #"^[^\.]+$"))
+(spec/def ::args (spec/nilable map?))
+
+(spec/def ::trigger (spec/or :name ::fus/non-blank-str :callback (partial instance? Callback)))
 
 (spec/def ::step-fn-args
   (spec/cat :callback-gen fn?
@@ -296,11 +299,11 @@
     (assoc context1 :args args)))
 
 (defn run-step
-  "Run the specified flow + step.
+  "Run the specified flow/step.
   Note: session contains a flow-name and step-name, but those are the most recent
   persisted values of those arguments, so the passed in arguments will be used instead."
-  [{:keys [flow-config aliases handlers datastore hooks] :as flow-engine}
-   session global data flow step trigger
+  [{:keys [flow-config aliases handlers datastore global] :as flow-engine}
+   session data flow step trigger
    & [depth]]
   (log/infof "Running step %s/%s" (:name flow) (:name step))
   (let [step-fn      (get-step-fn aliases step)
@@ -334,14 +337,14 @@
         (run-step flow-engine
                   ; Get a fresh session for the next step.
                   (ds/get-session datastore (get-in context [:session :id]))
-                  global data next-flow step trigger
+                  data next-flow step trigger
                   (inc (or depth 0)))))))
 
 (defn trigger-init
   "Trigger any matching flows.
   `global` and `data` are opaque to the engine, but are passed to the
   Step functions."
-  [flow-engine trigger global data]
+  [flow-engine trigger data]
   (let [matches (trigger-matches (:flow-config flow-engine) trigger)]
     (log/info "Triggering" trigger (map :name matches))
     (doseq [flow matches
@@ -352,6 +355,6 @@
                                                     (:name step)
                                                     data))]]
       (if step
-        (run-step flow-engine session global data flow step trigger)
+        (run-step flow-engine session data flow step trigger)
         (throw-misconfig "Workflow has no steps for trigger "
                          {:trigger trigger, :flow (:name flow)})))))

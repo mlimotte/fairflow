@@ -22,7 +22,7 @@
 (defmethod handle-event ["event_callback" "app_mention"]
   [flow-engine parse-trigger-fn req event]
   (log/info "app_mention received" event)
-  (engine/trigger-init flow-engine (parse-trigger-fn req) nil event)
+  (engine/trigger-init flow-engine (parse-trigger-fn req) event)
   {:status 200 :body "OK"})
 
 (defmethod handle-event :default
@@ -78,7 +78,7 @@
           (if flow
             (future
               (try
-                (engine/run-step flow-engine session nil payload flow step callback)
+                (engine/run-step flow-engine session payload flow step callback)
                 (catch Throwable t
                   (log/error t "Unknown exception running step."))))
             (log/warn "No flow found in config which matches flow-name in the callback"
