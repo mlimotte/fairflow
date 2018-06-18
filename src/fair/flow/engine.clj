@@ -34,7 +34,7 @@
 (defrecord Callback [session-id flow-name step-name local])
 
 (spec/def ::context
-  (spec/keys :req-un [::flow ::step ::global ::session]
+  (spec/keys :req-un [::flow ::step ::global ::session ::trigger]
              :opt-un [::args]))
 (spec/def ::flow (spec/keys :req-un [::name]))
 (spec/def ::step (spec/keys :req-un [::name]
@@ -284,12 +284,13 @@
     - step fn calls (in run-step)
     - render (in run-step)
     - handlers (in run-step)"
-  [{:keys [datastore hooks] :as flow-engine} session flow step global]
+  [{:keys [datastore hooks] :as flow-engine} session flow step global trigger]
   (let [enrichment (:context-enrichment hooks)
         renderer   (:renderer hooks)
         context1   (-> {:flow    (select-keys flow [:name])
                         :step    (select-keys step [:name :args])
                         :global  global
+                        :trigger trigger
                         :session {:step-state   (ds/get-step-state datastore session
                                                                    (:name flow) (:name step))
                                   :shared-state (ds/get-session-state datastore session)
@@ -310,7 +311,7 @@
         flow-name    (:name flow)
         step-idx     (:idx step)
         step-name    (:name step)
-        context      (full-context flow-engine session flow step global)
+        context      (full-context flow-engine session flow step global trigger)
         callback-gen (partial mk-callback-str (get-in context [:session :id]) flow-name step-name)
         step-res     (step-fn callback-gen context data)]
 

@@ -12,6 +12,7 @@
 
 (def color-error-red "#FF4444")
 (def color-action-green "#44FF44")
+(def color-dark-grey "#888888")
 (def color-map {:error-red    color-error-red
                 :action-green color-action-green})
 
@@ -138,7 +139,7 @@
   (let [step-state (:step-state session)]
     (log/debug "Menu" (:text step-args) step-state)
     (if (get step-state :wait-on-response)
-      (let [action-name (-> slack-event :actions first :name)]
+      (let [action-name (-> slack-event :actions first :name csk/->kebab-case)]
         (log/debug "slack-event: " slack-event)
         (engine/map->StepResult
           {:transition action-name}))
@@ -173,7 +174,7 @@
      ; TODO mesasge-id
      :shared-state-mutations {}
 
-     :transition             true}))
+     :transition             "true"}))
 
 ; Note: This is a partial validation, we do not check all of Slack's rules; for
 ;   fear of getting out of sync.
@@ -214,17 +215,17 @@
           (do
             (log/info "Dialog was cancelled")
             (engine/map->StepResult
-              {:transition false
+              {:transition "false"
                :step-state {:wait-on-response false}}))
           (do
             (log/info "Received dialog submission, session mutations:" mutation)
             (engine/map->StepResult
-              {:transition             true
+              {:transition             "true"
                :step-state             {:wait-on-response false}
                :shared-state-mutations mutation}))))
       (if (spec/valid? ::slack-dialog (:message args))
         (let [dialog (-> (:message args)
-                         (assoc :callback_id (callback-gen))
+                         (assoc :callback_id (apply callback-gen (:callback-locals args)))
                          (assoc :notify_on_cancel true)
                          (->> (deep-key-xform csk/->snake_case_keyword)))]
           (engine/map->StepResult

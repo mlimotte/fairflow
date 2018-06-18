@@ -44,7 +44,13 @@
   [flow-engine]
   (POST "/slack/interactives" req
     ; TODO dedupe incoming slack events-- maybe keep LRU of incoming event id (:action_ts ?)
-    (let [payload  (some-> req :params :payload (json/read-str :key-fn keyword))
+    (let [payload  (or (some-> req
+                               :params
+                               (as-> $ (or (get $ :payload) (get $ "payload")))
+                               (json/read-str :key-fn keyword)
+                               (assoc ::host-header (get-in req [:headers "host"])))
+                       (throw (ex-info "No payload found for Slack callback" {:type :bad-request})))
+
           ; Also consider capturing :trigger_id, :response_url
           ;   response_url: if we want to overwrite previous interactive message item
           ;   trigger_id: is for dialogs

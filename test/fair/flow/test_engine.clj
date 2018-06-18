@@ -92,7 +92,8 @@
                   nil
                   {:name "my-flow"}
                   {:name "step1" :args {:extra 10}}
-                  nil)]
+                  nil
+                  "some-trigger-str-or-callback")]
 
     ; Test: actions as a collection of tuples
     (process-actions context
