@@ -20,9 +20,10 @@
    :body   {:challenge (:challenge event)}})
 
 (defmethod handle-event ["event_callback" "app_mention"]
-  [flow-engine parse-trigger-fn req event]
+  [engine-manager parse-trigger-fn req event]
   (log/info "app_mention received" event)
-  (engine/trigger-init flow-engine (parse-trigger-fn req) event)
+  (let [flow-engine  (engine/get-engine engine-manager nil)]
+    (engine/trigger-init flow-engine (parse-trigger-fn req) event))
   {:status 200 :body "OK"})
 
 (defmethod handle-event :default
@@ -31,17 +32,17 @@
   "OK")
 
 (defn events
-  [verification-token flow-engine parse-trigger-fn]
+  [verification-token engine-manager parse-trigger-fn]
   (POST "/slack/events" req
     (let [request-body (:body req)]
       ; TODO dedupe incoming slack events-- maybe keep LRU of incoming event id (-> request-body :event :ts)
       (if (token-valid? verification-token request-body)
-        (handle-event flow-engine parse-trigger-fn req request-body)
+        (handle-event engine-manager parse-trigger-fn req request-body)
         {:status 400
          :body   "Verification token check failed."}))))
 
 (defn interactives
-  [flow-engine]
+  [engine-manager]
   (POST "/slack/interactives" req
     ; TODO dedupe incoming slack events-- maybe keep LRU of incoming event id (:action_ts ?)
     (let [payload  (or (some-> req
@@ -77,10 +78,15 @@
 
       ; TODO use defspec to validate required keys in callback
       (if (every? #(get callback %) [:session-id :flow-name :step-name])
-        (let [session   (ds/get-session (:datastore flow-engine) (:session-id callback))
-              flow      (->> callback :flow-name keyword (get (:flow-config flow-engine)))
-              step-name (:step-name callback)
-              step      (engine/find-step flow step-name)]
+        (let [session-id   (:session-id callback)
+              ; Always uses the latest version to get the datastore:
+              {:keys [datastore]} (engine/get-engine engine-manager nil)
+              flow-version (:flow_version (ds/get-session datastore session-id))
+              flow-engine  (engine/get-engine engine-manager flow-version)
+              session      (ds/get-session datastore session-id)
+              flow         (->> callback :flow-name keyword (get (:flow-config flow-engine)))
+              step-name    (:step-name callback)
+              step         (engine/find-step flow step-name)]
           (if flow
             (future
               (try

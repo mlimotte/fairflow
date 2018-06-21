@@ -119,8 +119,7 @@
 
 (defn my-flow-engine
   [flow-config read-ch]
-  (let [flow-version (engine/hash-for-version flow-config)
-        datomic-conn (datomicds/setup "datomic:mem://fairflow-sample")
+  (let [datomic-conn (datomicds/setup "datomic:mem://fairflow-sample")
         datastore    (datomicds/->DatomicDatastore datomic-conn)
         handlers     {:send-message handlers/console-message
                       :read-line    console-read-line
@@ -128,7 +127,7 @@
     (engine/map->FlowEngine
       {:datastore    datastore
        :flow-config  flow-config
-       :flow-version flow-version
+       :flow-version (engine/date-as-version flow-config)
        :hooks        {:renderer mustache-render/deep-string-values-render}
        ; The values of the alias Map can be functions or Vars
        :aliases      {"menu"    menu-step

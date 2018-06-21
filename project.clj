@@ -5,16 +5,7 @@
   :url "https://github.com/mlimotte/fairflow"
 
   :dependencies [[org.clojure/clojure "1.9.0"]
-
-                 ; [org.clojure/core.memoize "0.7.1"]
-                 ; [clj-time "0.14.3"]
-                 ; [amazonica "0.3.123"] ; AWS api
-                 ; [org.flatland/useful "0.11.5"
-                 ;   :exclusions [org.clojure/tools.macro
-                 ;                org.clojure/tools.reader]]
-                 ; [com.climate/java.shell2 "0.1.0"]
-                 ; [throttler "1.0.0"] ; enforce rate limiting on our use of external APIs
-
+                 [clojure.java-time "0.3.2"]
                  [org.clojure/core.async "0.4.474"]
                  [google-apps-clj "0.6.1"]
                  [org.flatland/ordered "1.5.6"]
@@ -22,7 +13,6 @@
                  [org.clojure/tools.reader "1.2.1"]
                  [stencil "0.5.0"] ; Mustache implementation
                  [org.clojure/tools.logging "0.4.1"]
-
                  ]
 
   :target-path "target/%s"

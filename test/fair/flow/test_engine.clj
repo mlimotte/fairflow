@@ -158,26 +158,29 @@
     {:a 1 :* "foo"} nil "foo"))
 
 (deftest test-next-step-specifier
-  (let [flow-config
-        (normalize-flow-config
-          {:flow1 {:trigger ["foo" "bar"]
-                   :steps   [{:type        "menu3",
-                              :args        {:a 1}
-                              :name        "One-A"
-                              :transitions "_next"}
-                             {:type        "menu4"
-                              :name        "One-B"
-                              :transitions {:val1 "flow2.Two-B"}}]}
-           :flow2 {:steps [{:type "A"
-                            :name "Two-A"}
-                           {:type        "B"
-                            :name        "Two-B"
-                            :transitions "_auto"}]}})]
+  (let [flow-config  (normalize-flow-config
+                       {:flow1 {:trigger ["foo" "bar"]
+                                :steps   [{:type        "menu3",
+                                           :args        {:a 1}
+                                           :name        "One-A"
+                                           :transitions "_next"}
+                                          {:type        "menu4"
+                                           :name        "One-B"
+                                           :transitions {:val1 "flow2.Two-B"}}]}
+                        :flow2 {:steps [{:type "A"
+                                         :name "Two-A"}
+                                        {:type        "B"
+                                         :name        "Two-B"
+                                         :transitions "_auto"}]}})
+        context-stub (fn [current-flow-name current-step-idx]
+                       {:step {:name (-> flow-config current-flow-name :steps
+                                         (nth current-step-idx) :name)
+                               :idx  current-step-idx}})]
     (are [current-flow-name current-step-idx trans-value expected]
-      (let [[flow step] (evaluate-transition flow-config (get flow-config current-flow-name)
-                                             (nth (get-in flow-config [current-flow-name :steps])
-                                                  current-step-idx)
-                                             current-step-idx trans-value)]
+      (let [[flow step] (evaluate-transition {:flow-config flow-config}
+                                             (context-stub current-flow-name current-step-idx)
+                                             (get flow-config current-flow-name)
+                                             trans-value)]
         (= [(:name flow) (:name step)] expected))
       :flow1 0 "any1" ["flow1" "One-B"]
       :flow1 1 "val1" ["flow2" "Two-B"]

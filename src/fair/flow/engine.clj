@@ -3,6 +3,7 @@
     [clojure.tools.logging :as log]
     [clojure.spec.alpha :as spec]
     [clojure.string :as string]
+    [java-time :as jtime]
     [fair.flow.util.lang :as lang]
     [fair.flow.datastore :as ds]
     [fair.flow.util.spec :as fus]))
@@ -106,11 +107,13 @@
                    :name (name flow-name))))
              raw-flow-config)))
 
-(defn hash-for-version
-  "Calculate a flow version identifier. We do this as a hash of the config."
-  [data]
-  ; TODO calc an MD5 for flow-config
-  "1")
+(defn date-as-version
+  "A version string based on either the :_flow_version in the config, or if that
+  doesn't exist, then the current date-time."
+  [config]
+  (or (:_flow_version config)
+      (jtime/format "yyy-MM-dd'T'HH:mm:ss'Z'"
+                    (jtime/with-zone-same-instant (jtime/zoned-date-time) "UTC"))))
 
 (defn trigger-matches
   "Find flows in the config that match the given trigger.
@@ -190,94 +193,100 @@
 (defn evaluate-transition
   "Find the next [flow step-name] based on a transition value.
   `trans-value` is the `:transition` from the last StepResult."
-  [flow-config current-flow step-name current-step-idx trans-value]
+  [{:keys [flow-config] :as flow-engine} context current-flow trans-value]
 
   ; TODO (maybe) A single string as transition_config should become {"*" STRING_VAL}
   ;    - Special value `*` in map check should match any non-nil trans-value (iff there is no exact match)
 
   ; Step Functions need to return non-nil, in order for a transition config to be considered.
-  (cond
+  (let [current-step-name (get-in context [:step :name])
+        current-step-idx (get-in context [:step :idx])]
+    (cond
 
-    (nil? trans-value)
-    nil
+      (nil? trans-value)
+      nil
 
-    (not (string? trans-value))
-    (throw-misconfig
-      "The transition in a StepResult must be a String if it is not nil."
-      {:trans-value-type (type trans-value)
-       :trans-value      trans-value
-       :current-flow     (:name current-flow)
-       :current-step     step-name})
+      (not (string? trans-value))
+      (throw-misconfig
+        "The transition in a StepResult must be a String if it is not nil."
+        {:trans-value-type (type trans-value)
+         :trans-value      trans-value
+         :current-flow     (:name current-flow)
+         :current-step     current-step-name})
 
-    (string? trans-value)
-    (let [_ (log/infof "Looking for next step specifier after %s/%s[%d], trans-value=%s"
-                       (:name current-flow) step-name current-step-idx trans-value)
+      (string? trans-value)
+      (let [_ (log/infof "Looking for next step specifier after %s/%s[%d], trans-value=%s"
+                         (:name current-flow) current-step-name current-step-idx trans-value)
 
-          transition-config
-            (-> current-flow :steps (nth current-step-idx) :transitions (or "_next"))
+            transition-config
+              (-> current-flow :steps (nth current-step-idx) :transitions (or "_next"))
 
-          ret-val
-            (cond
+            ret-val
+              (cond
 
-              (= transition-config "_next")
-              (let [next-step-idx (inc current-step-idx)
-                    new-flow      current-flow
-                    step          (-> new-flow :steps (nth next-step-idx nil))]
-                (if step
-                  [new-flow step]
-                  ; If there is no next step, just return nil
-                  nil))
+                (= transition-config "_next")
+                (let [next-step-idx (inc current-step-idx)
+                      new-flow      current-flow
+                      step          (-> new-flow :steps (nth next-step-idx nil))]
+                  (if step
+                    [new-flow step]
+                    ; If there is no next step, just return nil
+                    nil))
 
-              (= transition-config "_terminal")
-              nil
+                (= transition-config "_terminal")
+                (do
+                  (log/infof "Session ended: %s" (get-in context [:session :id]))
+                  ; TODO "end" the session here. Maybe with the a fn or hook registered
+                  ;      in flow-engine.
+                  nil)
 
-              :else
-              (let [[part1 part2]
-                    (parse-flow-step
+                :else
+                (let [[part1 part2]
+                      (parse-flow-step
+                        (cond
+                          (= transition-config "_auto") trans-value
+                          ; If transition-config is a Map, we expect it to be a Map[keyword]
+                          (map? transition-config) (get-from-map-with-*-default
+                                                     transition-config
+                                                     (keyword trans-value))))
+                      new-flow? (get flow-config (keyword part1))]
+
+                  (cond
+                    ; both parts, so this is a flow/step pair
+                    (and new-flow? part2)
+                    [new-flow? (find-step new-flow? part2)]
+
+                    ; Single part, if it's a step-name in current flow, go with that...
+                    (find-step current-flow part1)
+                    [current-flow (find-step current-flow part1)]
+
+                    ; Maybe it's a flow-name
+                    (and new-flow? (-> new-flow? :steps first))
+                    [new-flow? (-> new-flow? :steps first)]
+
+                    ; otherwise error
+                    :else
+                    ; In the case of an explicit step-specifier (not `next`), if there is no Step
+                    ; then that is a Misconfiguration error.
+                    (throw-misconfig
                       (cond
-                        (= transition-config "_auto") trans-value
-                        ; If transition-config is a Map, we expect it to be a Map[keyword]
-                        (map? transition-config) (get-from-map-with-*-default
-                                                   transition-config
-                                                   (keyword trans-value))))
-                    new-flow? (get flow-config (keyword part1))]
+                        (= transition-config "_auto")
+                        (format (str "step-specifier not found, expecting `%s` to match a flow or "
+                                     "flow.step name, such as %s.")
+                                trans-value (mapv name (keys flow-config)))
+                        (map? transition-config)
+                        (format "step-specifier not found, expecting `%s` to be one of %s"
+                                (keyword trans-value) (keys transition-config))
+                        :else
+                        (format (str "step-specifier not found, transition `%s` not understood, "
+                                     "expecting `_auto`, `_next`, `_terminal` or a Map")
+                                transition-config))
+                      {:part1 part1, :part2 part2}))))]
 
-                (cond
-                  ; both parts, so this is a flow/step pair
-                  (and new-flow? part2)
-                  [new-flow? (find-step new-flow? part2)]
-
-                  ; Single part, if it's a step-name in current flow, go with that...
-                  (find-step current-flow part1)
-                  [current-flow (find-step current-flow part1)]
-
-                  ; Maybe it's a flow-name
-                  (and new-flow? (-> new-flow? :steps first))
-                  [new-flow? (-> new-flow? :steps first)]
-
-                  ; otherwise error
-                  :else
-                  ; In the case of an explicit step-specifier (not `next`), if there is no Step
-                  ; then that is a Misconfiguration error.
-                  (throw-misconfig
-                    (cond
-                      (= transition-config "_auto")
-                      (format (str "step-specifier not found, expecting `%s` to match a flow or "
-                                   "flow.step name, such as %s.")
-                              trans-value (mapv name (keys flow-config)))
-                      (map? transition-config)
-                      (format "step-specifier not found, expecting `%s` to be one of %s"
-                              (keyword trans-value) (keys transition-config))
-                      :else
-                      (format (str "step-specifier not found, transition `%s` not understood, "
-                                   "expecting `_auto`, `_next`, `_terminal` or a Map")
-                              transition-config))
-                    {:part1 part1, :part2 part2}))))]
-
-      (if ret-val
-        (log/info "  Found next step: " (string/join "/" (map :name ret-val)))
-        (log/info "  No next step."))
-      ret-val)))
+        (if ret-val
+          (log/info "  Found next step: " (string/join "/" (map :name ret-val)))
+          (log/info "  No next step."))
+        ret-val))))
 
 (defn full-context
   "Create the common context object that is used as input for:
@@ -288,7 +297,7 @@
   (let [enrichment (:context-enrichment hooks)
         renderer   (:renderer hooks)
         context1   (-> {:flow    (select-keys flow [:name])
-                        :step    (select-keys step [:name :args])
+                        :step    (select-keys step [:name :args :idx])
                         :global  global
                         :trigger trigger
                         :session {:step-state   (ds/get-step-state datastore session
@@ -303,13 +312,13 @@
   "Run the specified flow/step.
   Note: session contains a flow-name and step-name, but those are the most recent
   persisted values of those arguments, so the passed in arguments will be used instead."
-  [{:keys [flow-config aliases handlers datastore global] :as flow-engine}
+  [{:keys [aliases handlers datastore global] :as flow-engine}
    session data flow step trigger
    & [depth]]
   (log/infof "Running step %s/%s" (:name flow) (:name step))
   (let [step-fn      (get-step-fn aliases step)
         flow-name    (:name flow)
-        step-idx     (:idx step)
+        ;step-idx     (:idx step)
         step-name    (:name step)
         context      (full-context flow-engine session flow step global trigger)
         callback-gen (partial mk-callback-str (get-in context [:session :id]) flow-name step-name)
@@ -328,7 +337,7 @@
 
     ; Evaluate transitions
     (if-let [[next-flow step]
-             (evaluate-transition flow-config flow step-name step-idx (:transition step-res))]
+             (evaluate-transition flow-engine context flow (:transition step-res))]
       (if (>= (or depth 0) 7)
         (throw (ex-info "Step has recursed too many times without user interaction"
                         {:depth       depth
@@ -359,3 +368,7 @@
         (run-step flow-engine session data flow step trigger)
         (throw-misconfig "Workflow has no steps for trigger "
                          {:trigger trigger, :flow (:name flow)})))))
+
+(defprotocol FlowEngineManager
+  (get-engine [this version])
+  (load-engine [this version]))
