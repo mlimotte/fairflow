@@ -100,7 +100,8 @@
   Note that sheet title (the Tab name) IS case-sensitive."
   ([creds-file gsheet-uri]
    (let [uri         (java.net.URI. gsheet-uri)
-         sheet-id    (.getHost uri)
+         ; getAuthority is like getHost but more forgiving of chars that are illegal as a host
+         sheet-id    (.getAuthority uri)
          sheet-title (-> uri .getPath (lang/safe-subs 1))]
      (make-context creds-file sheet-id sheet-title)))
   ([creds-file spreadsheet-id sheet-title]
@@ -160,8 +161,8 @@
 (defn read-all-data-cells
   "Return a Vector of Vectors for the row data.
   If `num-cols` is not specified, will attempt to guess based on first 4 rows of data."
-  [ctx & [{:keys [num-cols]}]]
-  (let [rows  (row-count ctx)
+  [ctx & [{:keys [num-cols max-rows]}]]
+  (let [rows  (if max-rows max-rows (row-count ctx))
         cols  (or num-cols (col-count ctx))
         range (format "A1:%s%d" (nth (col-indices) (dec cols)) rows)]
     (log/info "Reading Gsheet cell range:" range)
@@ -197,6 +198,19 @@
   (and (some? (raw-cell-value cell))
        (get-in cell ["userEnteredFormat" "textFormat" text-format-name])))
 
+(defn get-headers
+  [ctx]
+  (->> (read-all-data-cells ctx {:max-rows 1})
+       (map (partial map cell->clj))
+       first
+       assert-non-blank!
+       (map string/lower-case)
+       (map #(string/replace % " " "-"))
+       (map keyword)
+       assert-unique!
+       (map (fn [idx col-header] [col-header idx]) (col-indices))
+       ordered-map))
+
 (defn all-records
   "Load all data as a Vector of Maps.
 
@@ -219,11 +233,7 @@
   "
   [ctx & [{:keys [headers skip-if-X-in num-cols row-filter] :as options}]]
   (let [all-data-cells (read-all-data-cells ctx {:num-cols num-cols})
-        header-keys    (-> (or headers
-                               (->> all-data-cells
-                                    first
-                                    (map cell->clj)
-                                    (mapv csk/->kebab-case-keyword)))
+        header-keys    (-> (or headers (keys (get-headers ctx)))
                            assert-non-blank!
                            assert-unique!)]
     (->> all-data-cells
