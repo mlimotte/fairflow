@@ -29,7 +29,7 @@
 (defmethod handle-event :default
   [_ _ _ event]
   (log/info "Unhandled event type " (:type event))
-  "OK")
+  {:status 200 :body "OK"})
 
 (defn events
   [verification-token engine-manager parse-trigger-fn]
@@ -81,9 +81,9 @@
         (let [session-id   (:session-id callback)
               ; Always uses the latest version to get the datastore:
               {:keys [datastore]} (engine/get-engine engine-manager nil)
-              flow-version (:flow_version (ds/get-session datastore session-id))
-              flow-engine  (engine/get-engine engine-manager flow-version)
               session      (ds/get-session datastore session-id)
+              flow-version (:flow_version session)
+              flow-engine  (engine/get-engine engine-manager flow-version)
               flow         (->> callback :flow-name keyword (get (:flow-config flow-engine)))
               step-name    (:step-name callback)
               step         (engine/find-step flow step-name)]

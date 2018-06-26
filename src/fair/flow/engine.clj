@@ -1,7 +1,7 @@
 (ns fair.flow.engine
   (:require
     [clojure.tools.logging :as log]
-    [clojure.spec.alpha :as spec]
+    [clojure.spec.alpha :as s]
     [clojure.string :as string]
     [java-time :as jtime]
     [fair.flow.util.lang :as lang]
@@ -20,39 +20,39 @@
 
 (defrecord StepResult [actions transition shared-state-mutations step-state])
 
-(spec/def ::nil-kw-map (spec/nilable (spec/map-of keyword? any?)))
+(s/def ::nil-kw-map (s/nilable (s/map-of keyword? any?)))
 
-(spec/def ::spec-result
-  (spec/keys :opt-un [::actions ::transition ::shared-state-mutations ::step-state]))
+(s/def ::spec-result
+  (s/keys :opt-un [::actions ::transition ::shared-state-mutations ::step-state]))
 
-(spec/def ::actions (spec/or :m ::nil-kw-map
-                             :lst (spec/coll-of (spec/cat :k keyword? :v any?))))
+(s/def ::actions (s/or :m ::nil-kw-map
+                       :lst (s/coll-of (s/cat :k keyword? :v any?))))
 
-(spec/def ::transition (spec/nilable ::fus/non-blank-str))
-(spec/def ::shared-state-mutations ::nil-kw-map)
-(spec/def ::step-state ::nil-kw-map)
+(s/def ::transition (s/nilable ::fus/non-blank-str))
+(s/def ::shared-state-mutations ::nil-kw-map)
+(s/def ::step-state ::nil-kw-map)
 
 (defrecord Callback [session-id flow-name step-name local])
 
-(spec/def ::context
-  (spec/keys :req-un [::flow ::step ::global ::session ::trigger]
-             :opt-un [::args]))
-(spec/def ::flow (spec/keys :req-un [::name]))
-(spec/def ::step (spec/keys :req-un [::name]
-                            :opt-un [::args]))
-(spec/def ::global (spec/nilable map?))
-(spec/def ::session (spec/keys :req-un [::step-state ::shared-state ::id]))
+(s/def ::context
+  (s/keys :req-un [::flow ::step ::global ::session ::trigger]
+          :opt-un [::args]))
+(s/def ::flow (s/keys :req-un [::name]))
+(s/def ::step (s/keys :req-un [::name]
+                      :opt-un [::args]))
+(s/def ::global (s/nilable map?))
+(s/def ::session (s/keys :req-un [::step-state ::shared-state ::id]))
 ; Session key must be a non-blank string and can not contain dots (otherwise we
 ; wouldn't be able to parse it out of the callback id.
-(spec/def ::id (partial re-find #"^[^\.]+$"))
-(spec/def ::args (spec/nilable map?))
+(s/def ::id (partial re-find #"^[^\.]+$"))
+(s/def ::args (s/nilable map?))
 
-(spec/def ::trigger (spec/or :name ::fus/non-blank-str :callback (partial instance? Callback)))
+(s/def ::trigger (s/or :name ::fus/non-blank-str :callback (partial instance? Callback)))
 
-(spec/def ::step-fn-args
-  (spec/cat :callback-gen fn?
-            :context ::context
-            :data map?))
+(s/def ::step-fn-args
+  (s/cat :callback-gen fn?
+         :context ::context
+         :data map?))
 
 (defrecord ActionSessionMutation [state])
 
@@ -172,10 +172,10 @@
     doall
     (apply merge-with lang/merge-maps)))
 
-(spec/fdef process-actions
-           :args (spec/cat :context ::context
-                           :handlers (spec/map-of keyword? fn?)
-                           :actions ::actions))
+(s/fdef process-actions
+  :args (s/cat :context ::context
+               :handlers (s/map-of keyword? fn?)
+               :actions ::actions))
 
 (defn parse-flow-step
   "Get the flow-name and step from step-specifier, which is a String, either
@@ -200,7 +200,7 @@
 
   ; Step Functions need to return non-nil, in order for a transition config to be considered.
   (let [current-step-name (get-in context [:step :name])
-        current-step-idx (get-in context [:step :idx])]
+        current-step-idx  (get-in context [:step :idx])]
     (cond
 
       (nil? trans-value)
@@ -236,7 +236,7 @@
                 (= transition-config "_terminal")
                 (do
                   (log/infof "Session ended: %s" (get-in context [:session :id]))
-                  ; TODO "end" the session here. Maybe with the a fn or hook registered
+                  ; TODO "end" the session here. Maybe with a fn or hook registered
                   ;      in flow-engine.
                   nil)
 
@@ -318,7 +318,6 @@
   (log/infof "Running step %s/%s" (:name flow) (:name step))
   (let [step-fn      (get-step-fn aliases step)
         flow-name    (:name flow)
-        ;step-idx     (:idx step)
         step-name    (:name step)
         context      (full-context flow-engine session flow step global trigger)
         callback-gen (partial mk-callback-str (get-in context [:session :id]) flow-name step-name)
@@ -336,19 +335,20 @@
         (ds/store-session datastore session flow-name step-name session-mutations step-state)))
 
     ; Evaluate transitions
-    (if-let [[next-flow step]
+    (if-let [[next-flow next-step-name]
              (evaluate-transition flow-engine context flow (:transition step-res))]
       (if (>= (or depth 0) 7)
         (throw (ex-info "Step has recursed too many times without user interaction"
                         {:depth       depth
                          ::type       "recursion-limit"
-                         :next        [next-flow step]
+                         :next        [next-flow next-step-name]
                          :trans-value (:transition step-res)}))
         (run-step flow-engine
                   ; Get a fresh session for the next step.
                   (ds/get-session datastore (get-in context [:session :id]))
-                  data next-flow step trigger
-                  (inc (or depth 0)))))))
+                  data next-flow next-step-name trigger
+                  (inc (or depth 0))))
+      [context flow-name step-name])))
 
 (defn trigger-init
   "Trigger any matching flows.
@@ -369,6 +369,9 @@
         (throw-misconfig "Workflow has no steps for trigger "
                          {:trigger trigger, :flow (:name flow)})))))
 
+; This protocol is not used by the core engine. It is made available for
+; implementations that want to allow multiple flow engines to be active at once.
+; See fair.flow.flow-contrib.slack-routes
 (defprotocol FlowEngineManager
   (get-engine [this version])
   (load-engine [this version]))

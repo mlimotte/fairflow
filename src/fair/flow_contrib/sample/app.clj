@@ -168,10 +168,6 @@
                                        flow-config-filename))))
         read-ch     (async/chan)
         engine      (my-flow-engine flow-config read-ch)
-
-        ;global      {:read-ch  (async/chan)
-        ;             :time-str time-str
-        ;             :date-str date-str}
         loop        (future (callback-loop engine read-ch))]
 
     ; There are generally two entry points to the flow engine.

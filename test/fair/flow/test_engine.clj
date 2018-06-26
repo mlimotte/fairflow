@@ -3,7 +3,7 @@
     [clojure.test :refer :all]
     [fair.flow.engine :refer :all]
     [fair.flow.datastore :as ds]
-    [fair.flow.util.lang :as lang]))
+    [fair.flow-contrib.memory-datastore :as memory-ds]))
 
 (defn sample-step-fn
   [& args]
@@ -187,39 +187,39 @@
       :flow2 1 "flow1.One-A" ["flow1" "One-A"]
       :flow2 1 "flow1" ["flow1" "One-A"])))
 
-(deftype SampleDatastore [all-sessions]
-  ds/FlowEngineDatastore
-  (new-session [this flow-version flow-name step-name data]
-    (let [len         (count @all-sessions)
-          new-session {:id            len
-                       :session-state {}
-                       :step-states   {}}]
-      (swap! all-sessions conj new-session)
-      new-session))
-
-  (session-id [this session]
-    (str (:id session)))
-
-  (get-session [this session-id]
-    (nth @all-sessions (lang/as-long session-id)))
-
-  (get-session-state [this session]
-    (:session-state session))
-
-  (get-step-state [this session flow-name step-name]
-    (get-in session [:step-states flow-name step-name]))
-
-  (store-session [this session flow-name step-name shared-state-mutations step-state]
-    (let [idx              (lang/as-long (ds/session-id this session))
-          old-session      (get @all-sessions idx)
-          new-shared-state (lang/merge-maps (:session-state old-session)
-                                            ; If shared-state-mutations is nil, use `{}`, so it
-                                            ; doesn't overwrite existing :session-state value.
-                                            (or shared-state-mutations {}))
-          new-session      (-> old-session
-                               (assoc :session-state new-shared-state)
-                               (assoc-in [:step-states flow-name step-name] step-state))]
-      (swap! all-sessions assoc idx new-session))))
+;(deftype MemoryDatastore [all-sessions]
+;  ds/FlowEngineDatastore
+;  (new-session [this flow-version flow-name step-name data]
+;    (let [len         (count @all-sessions)
+;          new-session {:id            len
+;                       :session-state {}
+;                       :step-states   {}}]
+;      (swap! all-sessions conj new-session)
+;      new-session))
+;
+;  (session-id [this session]
+;    (str (:id session)))
+;
+;  (get-session [this session-id]
+;    (nth @all-sessions (lang/as-long session-id)))
+;
+;  (get-session-state [this session]
+;    (:session-state session))
+;
+;  (get-step-state [this session flow-name step-name]
+;    (get-in session [:step-states flow-name step-name]))
+;
+;  (store-session [this session flow-name step-name shared-state-mutations step-state]
+;    (let [idx              (lang/as-long (ds/session-id this session))
+;          old-session      (get @all-sessions idx)
+;          new-shared-state (lang/merge-maps (:session-state old-session)
+;                                            ; If shared-state-mutations is nil, use `{}`, so it
+;                                            ; doesn't overwrite existing :session-state value.
+;                                            (or shared-state-mutations {}))
+;          new-session      (-> old-session
+;                               (assoc :session-state new-shared-state)
+;                               (assoc-in [:step-states flow-name step-name] step-state))]
+;      (swap! all-sessions assoc idx new-session))))
 
 (defn sample-step
   [callback-gen {:keys [session]} data]
@@ -243,7 +243,7 @@
                                   :name        "start"
                                   :transitions "_auto"}})
         all-sessions  (atom [])
-        dstore        (->SampleDatastore all-sessions)
+        dstore        (memory-ds/->MemoryDatastore all-sessions)
         new-session   (ds/new-session dstore nil nil nil nil)
         handler-calls (atom [])
         global        {:extra "req1"}]
@@ -279,7 +279,7 @@
 
 (deftest test-trigger-init
   (let [all-sessions  (atom [])
-        dstore        (->SampleDatastore all-sessions)
+        dstore        (memory-ds/->MemoryDatastore all-sessions)
         handler-calls (atom [])
         flow-config   (normalize-flow-config
                         {:flow-a {:trigger "foo"
