@@ -348,26 +348,26 @@
                   (ds/get-session datastore (get-in context [:session :id]))
                   data next-flow next-step-name trigger
                   (inc (or depth 0))))
-      [context flow-name step-name])))
+      context)))
 
 (defn trigger-init
-  "Trigger any matching flows.
-  `global` and `data` are opaque to the engine, but are passed to the
-  Step functions."
+  "Trigger any matching flows. `data` is opaque to the engine, but is passed to
+  the Step functions. Returns final `context` from the first executed flow."
   [flow-engine trigger data]
   (let [matches (trigger-matches (:flow-config flow-engine) trigger)]
     (log/info "Triggering" trigger (map :name matches))
-    (doseq [flow matches
+    (first
+      (for [flow matches
             :let [step    (-> flow :steps first)
                   session (and step (ds/new-session (:datastore flow-engine)
                                                     (:flow-version flow-engine)
                                                     (:name flow)
                                                     (:name step)
                                                     data))]]
-      (if step
-        (run-step flow-engine session data flow step trigger)
-        (throw-misconfig "Workflow has no steps for trigger "
-                         {:trigger trigger, :flow (:name flow)})))))
+        (if step
+          (run-step flow-engine session data flow step trigger)
+          (throw-misconfig "Workflow has no steps for trigger "
+                           {:trigger trigger, :flow (:name flow)}))))))
 
 ; This protocol is not used by the core engine. It is made available for
 ; implementations that want to allow multiple flow engines to be active at once.

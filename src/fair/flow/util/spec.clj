@@ -1,10 +1,14 @@
 (ns fair.flow.util.spec
   (:require
     [clojure.string :as string]
-    [clojure.spec.alpha :as spec]))
+    [clojure.spec.alpha :as s])
+  (:import
+    (clojure.lang MultiFn)))
 
-(spec/def ::non-blank-str (spec/and string? (complement string/blank?)))
+(s/def ::non-blank-str (s/and string? (complement string/blank?)))
 
-(spec/def ::vec-of-tuples
-  (spec/coll-of (spec/coll-of string? :count 2)
-                :kind vector?))
+(s/def ::vec-of-tuples
+  (s/coll-of (s/coll-of string? :count 2)
+             :kind vector?))
+
+(s/def ::fn #(or (fn? %) (instance? MultiFn %)))
