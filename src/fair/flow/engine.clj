@@ -357,17 +357,18 @@
   (let [matches (trigger-matches (:flow-config flow-engine) trigger)]
     (log/info "Triggering" trigger (map :name matches))
     (first
-      (for [flow matches
-            :let [step    (-> flow :steps first)
-                  session (and step (ds/new-session (:datastore flow-engine)
-                                                    (:flow-version flow-engine)
-                                                    (:name flow)
-                                                    (:name step)
-                                                    data))]]
-        (if step
-          (run-step flow-engine session data flow step trigger)
-          (throw-misconfig "Workflow has no steps for trigger "
-                           {:trigger trigger, :flow (:name flow)}))))))
+      (doall
+        (for [flow matches
+              :let [step    (-> flow :steps first)
+                    session (and step (ds/new-session (:datastore flow-engine)
+                                                      (:flow-version flow-engine)
+                                                      (:name flow)
+                                                      (:name step)
+                                                      data))]]
+          (if step
+            (run-step flow-engine session data flow step trigger)
+            (throw-misconfig "Workflow has no steps for trigger "
+                             {:trigger trigger, :flow (:name flow)})))))))
 
 ; This protocol is not used by the core engine. It is made available for
 ; implementations that want to allow multiple flow engines to be active at once.

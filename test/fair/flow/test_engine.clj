@@ -298,4 +298,7 @@
          :datastore   dstore})
       "foo"
       {:foo 5})
+    ; One handler call from flow-a, plus two from flow-c = 3
+    (is (= (count @handler-calls) 3))
+    ; Because this is a trigger, and two flows match, each one is a separate Session.
     (is (= (count @all-sessions) 2))))
