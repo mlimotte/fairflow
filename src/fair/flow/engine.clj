@@ -8,6 +8,16 @@
     [fair.flow.datastore :as ds]
     [fair.flow.util.spec :as fus]))
 
+; This protocol is not used by the core engine. It is made available for
+; implementations that want to allow multiple flow engines to be active at once.
+; See fair.flow.flow-contrib.slack-routes.
+; The FlowEngine record itself, implements FlowEngineManager/get-engine. This
+; way, you can always use a FlowEngine as a FlowEngineManager that always returns
+; itself.
+(defprotocol FlowEngineManager
+  (get-engine [this version])
+  (load-engine [this version]))
+
 (defrecord FlowEngine
   ; Fields:
   ;   TODO ... add docs for other fields
@@ -16,7 +26,9 @@
   ;       Map that will be used for steps, actions, rendering, etc.
   ;     :renderer (fn) - A function of the Context and a structure whose strings
   ;       should be rendered with interpolation.
-  [datastore flow-config flow-version hooks aliases handlers global])
+  [datastore flow-config flow-version hooks aliases handlers global]
+  FlowEngineManager
+  (get-engine [this version] this))
 
 (defrecord StepResult [actions transition shared-state-mutations step-state])
 
@@ -369,10 +381,3 @@
             (run-step flow-engine session data flow step trigger)
             (throw-misconfig "Workflow has no steps for trigger "
                              {:trigger trigger, :flow (:name flow)})))))))
-
-; This protocol is not used by the core engine. It is made available for
-; implementations that want to allow multiple flow engines to be active at once.
-; See fair.flow.flow-contrib.slack-routes
-(defprotocol FlowEngineManager
-  (get-engine [this version])
-  (load-engine [this version]))
