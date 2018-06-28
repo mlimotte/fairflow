@@ -27,7 +27,7 @@
   `(merge-with merge-maps {:a 1} {:b 1})`"
   [l r]
   (cond
-    (and (map? l) (map? r)) (merge-with merge-maps l r)
+    (and (map? l) (map? r)) (not-nil (merge-with merge-maps l r))
     :else r))
 
 (defn resolve-var-by-name

@@ -4,6 +4,9 @@
   (:require
     [clojure.string :as string]))
 
+(def session-state-active "active")
+(def session-state-stopped "stopped")
+
 (defn mk-dot-key
   [& args]
   (string/join "." (map str args)))
@@ -50,5 +53,23 @@
     "Get the state for the named Step")
 
   (store-session [this session flow-name step-name shared-state-mutations step-state]
-    "Persist the session details and state.
-    Should do a recursive merge for shared-state-mutations, as per `fair.flow.util.lang/merge-maps`."))
+    "Persist the session details and state. Should do a recursive merge for
+    shared-state-mutations, as per `fair.flow.util.lang/merge-maps`.
+
+    N.B. If you persist data session-state/step-state as JSON, it is best-practice to
+    read the keys back as Strings (not keywords). Automatic conversion to/from keywords
+    can be confusing for a developer who intentionally creates a Map of Strings. Best
+    to leave the persisted state un-molested.")
+
+  (end-session [this session-id]
+    "Mark the session is completed.")
+
+  (session-status [this session]
+    "Get the status for this session. One of fair.flow.datastore/session-state-*")
+
+  )
+
+(defn session-active?
+  "Is the given session active (fair.flow.datastore/session-state-active)?"
+  [datastore session]
+  (= (session-status datastore session) session-state-active))

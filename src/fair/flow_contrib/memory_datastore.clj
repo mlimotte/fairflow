@@ -10,6 +10,7 @@
   (new-session [this flow-version flow-name step-name data]
     (let [len         (count @all-sessions)
           new-session {:id            len
+                       :status        ds/session-state-active
                        :session-state {}
                        :step-states   {}}]
       (swap! all-sessions conj new-session)
@@ -17,6 +18,9 @@
 
   (session-id [this session]
     (str (:id session)))
+
+  (session-status [this session]
+    (:status session))
 
   (get-session [this session-id]
     (nth @all-sessions (lang/as-long session-id)))
@@ -37,4 +41,10 @@
           new-session      (-> old-session
                                (assoc :session-state new-shared-state)
                                (assoc-in [:step-states flow-name step-name] step-state))]
-      (swap! all-sessions assoc idx new-session))))
+      (swap! all-sessions assoc idx new-session)))
+
+  (end-session [this session-id]
+    (let [idx              (lang/as-long session-id)
+          old-session      (get @all-sessions idx)]
+      (swap! all-sessions assoc idx (assoc old-session
+                                      :status ds/session-state-stopped)))))

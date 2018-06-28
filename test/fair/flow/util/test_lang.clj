@@ -52,4 +52,7 @@
   (is (= (merge-with merge-maps {:a {:b 1}})
          {:a {:b 1}}))
   (is (= (merge-maps {} {:a {:b 1}})
-         {:a {:b 1}})))
+         {:a {:b 1}}))
+  ; Test: nil value will remove key
+  (is (= (merge-maps {:a 1 :c {:d 1}} {:c nil})
+         {:a 1})))

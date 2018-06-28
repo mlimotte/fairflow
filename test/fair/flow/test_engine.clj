@@ -1,6 +1,7 @@
 (ns fair.flow.test-engine
   (:require
     [clojure.test :refer :all]
+    [java-time :as jtime]
     [fair.flow.engine :refer :all]
     [fair.flow.datastore :as ds]
     [fair.flow-contrib.memory-datastore :as memory-ds]))
@@ -93,7 +94,8 @@
                   {:name "my-flow"}
                   {:name "step1" :args {:extra 10}}
                   nil
-                  "some-trigger-str-or-callback")]
+                  "some-trigger-str-or-callback"
+                  (.toEpochMilli (jtime/instant)))]
 
     ; Test: actions as a collection of tuples
     (process-actions context
@@ -121,7 +123,7 @@
                    {:increment-var3 (fn [context [k v]]
 
                                       (swap! var3 + (get-in context [:session :shared-state :x]) v)
-                                      (->ActionSessionMutation {:foo {k k}}))}
+                                      (->ActionMutation {:foo {k k}}))}
 
                    [[:increment-var3 [:a 100]]
                     [:increment-var3 [:b 100]]])]
@@ -186,40 +188,6 @@
       :flow1 1 "val1" ["flow2" "Two-B"]
       :flow2 1 "flow1.One-A" ["flow1" "One-A"]
       :flow2 1 "flow1" ["flow1" "One-A"])))
-
-;(deftype MemoryDatastore [all-sessions]
-;  ds/FlowEngineDatastore
-;  (new-session [this flow-version flow-name step-name data]
-;    (let [len         (count @all-sessions)
-;          new-session {:id            len
-;                       :session-state {}
-;                       :step-states   {}}]
-;      (swap! all-sessions conj new-session)
-;      new-session))
-;
-;  (session-id [this session]
-;    (str (:id session)))
-;
-;  (get-session [this session-id]
-;    (nth @all-sessions (lang/as-long session-id)))
-;
-;  (get-session-state [this session]
-;    (:session-state session))
-;
-;  (get-step-state [this session flow-name step-name]
-;    (get-in session [:step-states flow-name step-name]))
-;
-;  (store-session [this session flow-name step-name shared-state-mutations step-state]
-;    (let [idx              (lang/as-long (ds/session-id this session))
-;          old-session      (get @all-sessions idx)
-;          new-shared-state (lang/merge-maps (:session-state old-session)
-;                                            ; If shared-state-mutations is nil, use `{}`, so it
-;                                            ; doesn't overwrite existing :session-state value.
-;                                            (or shared-state-mutations {}))
-;          new-session      (-> old-session
-;                               (assoc :session-state new-shared-state)
-;                               (assoc-in [:step-states flow-name step-name] step-state))]
-;      (swap! all-sessions assoc idx new-session))))
 
 (defn sample-step
   [callback-gen {:keys [session]} data]

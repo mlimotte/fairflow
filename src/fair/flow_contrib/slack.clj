@@ -16,6 +16,9 @@
 (def color-map {:error-red    color-error-red
                 :action-green color-action-green})
 
+(def last-round-messages "_slack_last-round-messages")
+(def message-list "_slack_messages")
+
 ;;; Slack Helpers
 
 (defn get-channel
@@ -69,32 +72,52 @@
 
 (defn slack-send-message-handler
   "An action handler for sending Slack messages."
-  [token {:keys [session]} payload]
-  (let [message-id  (::message-id payload)
-        existing-ts (get-in session [:shared-state ::messages message-id])
-        api-method  (::api-method payload)
+  [token {:keys [session round-epoch-millis]} payload]
+  (let [message-id    (::message-id payload)
+        existing-ts   (get-in session [:shared-state "messages" message-id])
+        api-method    (::api-method payload)
         ; If this is a chat.postMessage and we have an existing ts, let's do an update instead
-        api-method  (if (and existing-ts (= api-method "chat.postMessage"))
-                      "chat.update"
-                      api-method)
-        response    (send-message token
-                                  api-method
-                                  (-> payload
-                                      (dissoc ::api-method ::message-id)
-                                      (assoc :ts existing-ts)))
-        response-body (some-> response :body (json/read-str :key-fn keyword) )
-        ts (:ts response-body)]
-    ; Save the ts in ::messages if message-id is set.
-    (if message-id
-      (engine/->ActionSessionMutation {::messages {message-id ts}}))))
+        api-method    (if (and existing-ts (= api-method "chat.postMessage"))
+                        "chat.update"
+                        api-method)
+        response      (send-message token
+                                    api-method
+                                    (-> payload
+                                        (dissoc ::api-method ::message-id)
+                                        (assoc :ts existing-ts)))
+        response-body (some-> response :body (json/read-str :key-fn keyword))
+        ; Note: Slack timestamps (ts) are Strings
+        ts            (:ts response-body)]
+
+    (let [last-round-messages-map (get-in session [:shared-state last-round-messages])
+          previous-keys           (some->> last-round-messages-map
+                                           keys
+                                           (filter (fn [k] (not= k round-epoch-millis)))
+                                           ; Explicit nil value, when in ActionMutation, will
+                                           ; cause the key to be deleted from the Shared session.
+                                           (map #(vector % nil))
+                                           (into {}))]
+
+      (engine/map->ActionMutation
+        {:session-state
+         (merge
+           ; Save the ts in message-list if message-id is set
+           (if message-id {message-list {message-id ts}})
+           {last-round-messages (merge {round-epoch-millis {ts true}}
+                                       previous-keys)}
+           )}))))
+
+(spec/def ::message-id string?)
 
 ; payload has only been tested with these Slack message types, add more as they are tested.
-(spec/fdef slack-send-message-handler
-           :args (spec/cat :token ::fus/non-blank-str
-                           :context ::engine/context
-                           :payload (spec/keys :req [::api-method])))
 (spec/def ::api-method #{"chat.postMessage"
                          "dialog.open"})
+
+(spec/fdef slack-send-message-handler
+  :args (spec/cat :token ::fus/non-blank-str
+                  :context ::engine/context
+                  :payload (spec/keys :req [::api-method]
+                                      :opt [::message-id])))
 
 ;;; Slack Message creation Helpers
 
@@ -124,11 +147,11 @@
                    :value (or value final-name)})))
 
 (spec/fdef button
-           :args (spec/cat :button-spec
-                           (spec/or
-                             :map (spec/keys :opt-un [::name ::value]
-                                             :req-un [::text])
-                             :str ::fus/non-blank-str)))
+  :args (spec/cat :button-spec
+                  (spec/or
+                    :map (spec/keys :opt-un [::name ::value]
+                                    :req-un [::text])
+                    :str ::fus/non-blank-str)))
 
 ;;; Step functions
 
@@ -138,7 +161,7 @@
   [callback-gen {step-args :args session :session} slack-event]
   (let [step-state (:step-state session)]
     (log/debug "Menu" (:text step-args) step-state)
-    (if (get step-state :wait-on-response)
+    (if (get step-state "wait-on-response")
       (let [action-name (-> slack-event :actions first :name csk/->kebab-case)]
         (log/debug "slack-event: " slack-event)
         (engine/map->StepResult
@@ -151,15 +174,15 @@
                                       :color       (:color step-args)
                                       :callback_id (callback-gen)
                                       :actions     (mapv button (:options step-args))}]}}
-         :step-state {:wait-on-response true}}))))
+         :step-state {"wait-on-response" true}}))))
 
 (spec/def :fair.flow.slack.menu/args
   (spec/keys :opt-un [::text ::options]))
 (spec/fdef menu-step
-           ::args (spec/and ::engine/nil-kw-map
-                            (spec/tuple any?
-                                        (spec/keys :req-un [:fair.flow.slack.menu/args])
-                                        any?)))
+  ::args (spec/and ::engine/nil-kw-map
+                   (spec/tuple any?
+                               (spec/keys :req-un [:fair.flow.slack.menu/args])
+                               any?)))
 
 (defn message-step
   [callback-gen {:keys [args]} slack-event]
@@ -173,7 +196,6 @@
                                   (dissoc :message-id))}
      ; TODO mesasge-id
      :shared-state-mutations {}
-
      :transition             "true"}))
 
 ; Note: This is a partial validation, we do not check all of Slack's rules; for
@@ -207,8 +229,8 @@
   [callback-gen {:keys [args session]} slack-event]
   ; TODO spec validate requirements of slack-event for both cases
   (let [step-state (:step-state session)]
-    (if (get step-state :wait-on-response)
-      (let [save-as    (keyword (:save-key args))
+    (if (get step-state "wait-on-response")
+      (let [save-as    (:save-key args)
             submission (:submission slack-event)
             mutation   {save-as submission}]
         (if (= (:type slack-event) "dialog_cancellation")
@@ -216,12 +238,12 @@
             (log/info "Dialog was cancelled")
             (engine/map->StepResult
               {:transition "false"
-               :step-state {:wait-on-response false}}))
+               :step-state {"wait-on-response" false}}))
           (do
             (log/info "Received dialog submission, session mutations:" mutation)
             (engine/map->StepResult
               {:transition             "true"
-               :step-state             {:wait-on-response false}
+               :step-state             {"wait-on-response" false}
                :shared-state-mutations mutation}))))
       (if (spec/valid? ::slack-dialog (:message args))
         (let [dialog (-> (:message args)
@@ -233,6 +255,7 @@
                           {::api-method "dialog.open"
                            :trigger_id  (:trigger_id slack-event)
                            :dialog      dialog}}
-             :step-state {:wait-on-response true}}))
-        (engine/throw-misconfig "Dialog spec is not valid."
-                                {:explanation (spec/explain-str ::slack-dialog (:message args))})))))
+             :step-state {"wait-on-response" true}}))
+        (engine/throw-misconfig
+          "Dialog spec is not valid."
+          {:explanation (spec/explain-str ::slack-dialog (:message args))})))))

@@ -41,8 +41,8 @@
                        :lst (s/coll-of (s/cat :k keyword? :v any?))))
 
 (s/def ::transition (s/nilable ::fus/non-blank-str))
-(s/def ::shared-state-mutations ::nil-kw-map)
-(s/def ::step-state ::nil-kw-map)
+(s/def ::shared-state-mutations (s/nilable (s/map-of string? any?)))
+(s/def ::step-state (s/nilable (s/map-of string? any?)))
 
 (defrecord Callback [session-id flow-name step-name local])
 
@@ -66,7 +66,7 @@
          :context ::context
          :data map?))
 
-(defrecord ActionSessionMutation [state])
+(defrecord ActionMutation [session-state])
 
 (defn throw-misconfig
   [msg & [data]]
@@ -164,7 +164,7 @@
 
 (defn process-actions
   "Process the actions using the given context and handlers.
-  handlers that return ActionSessionMutation objects, will have those results
+  handlers that return ActionMutation objects, will have those results
   merged (in order), with the merged result used as return value of this
   function.
   Returns: A Map of shared session state mutations."
@@ -175,7 +175,7 @@
       (if handler
         (do (log/info "Running handler for" k)
             (let [action-result (handler context v)]
-              (if (instance? ActionSessionMutation action-result)
+              (if (instance? ActionMutation action-result)
                 action-result)))
         (throw-misconfig "No handler for action"
                          {:action-name k
@@ -240,17 +240,14 @@
                 (let [next-step-idx (inc current-step-idx)
                       new-flow      current-flow
                       step          (-> new-flow :steps (nth next-step-idx nil))]
+
                   (if step
                     [new-flow step]
-                    ; If there is no next step, just return nil
-                    nil))
+                    ; If there is no next step, we're done
+                    [nil nil ::end]))
 
                 (= transition-config "_terminal")
-                (do
-                  (log/infof "Session ended: %s" (get-in context [:session :id]))
-                  ; TODO "end" the session here. Maybe with a fn or hook registered
-                  ;      in flow-engine.
-                  nil)
+                [nil nil ::end]
 
                 :else
                 (let [[part1 part2]
@@ -305,20 +302,24 @@
     - step fn calls (in run-step)
     - render (in run-step)
     - handlers (in run-step)"
-  [{:keys [datastore hooks] :as flow-engine} session flow step global trigger]
+  [{:keys [datastore hooks] :as flow-engine} session flow step global trigger
+   round-epoch-millis]
   (let [enrichment (:context-enrichment hooks)
         renderer   (:renderer hooks)
-        context1   (-> {:flow    (select-keys flow [:name])
-                        :step    (select-keys step [:name :args :idx])
-                        :global  global
-                        :trigger trigger
-                        :session {:step-state   (ds/get-step-state datastore session
-                                                                   (:name flow) (:name step))
-                                  :shared-state (ds/get-session-state datastore session)
-                                  :id           (ds/session-id datastore session)}}
-                       (cond-> enrichment (enrichment session)))
-        args       (if renderer (renderer context1 (:args step)) (:args step))]
-    (assoc context1 :args args)))
+        context1   {:flow               (select-keys flow [:name])
+                    :step               (select-keys step [:name :args :idx])
+                    :global             global
+                    :trigger            trigger
+                    :round-epoch-millis round-epoch-millis
+                    :session            {:step-state   (ds/get-step-state datastore session
+                                                                          (:name flow) (:name step))
+                                         :shared-state (ds/get-session-state datastore session)
+                                         :id           (ds/session-id datastore session)}}
+        context2   (if enrichment
+                     (enrichment flow-engine context1 session)
+                     context1)
+        args       (if renderer (renderer context2 (:args step)) (:args step))]
+    (assoc context2 :args args)))
 
 (defn run-step
   "Run the specified flow/step.
@@ -326,48 +327,63 @@
   persisted values of those arguments, so the passed in arguments will be used instead."
   [{:keys [aliases handlers datastore global] :as flow-engine}
    session data flow step trigger
-   & [depth]]
+   & [depth round-epoch-millis]]
   (log/infof "Running step %s/%s" (:name flow) (:name step))
-  (let [step-fn      (get-step-fn aliases step)
-        flow-name    (:name flow)
-        step-name    (:name step)
-        context      (full-context flow-engine session flow step global trigger)
-        callback-gen (partial mk-callback-str (get-in context [:session :id]) flow-name step-name)
-        step-res     (step-fn callback-gen context data)]
+  (let [round-epoch-millis (or round-epoch-millis (.toEpochMilli (jtime/instant)))
+        step-fn            (get-step-fn aliases step)
+        flow-name          (:name flow)
+        step-name          (:name step)
+        context            (full-context flow-engine session flow step global trigger
+                                         round-epoch-millis)
+        callback-gen       (partial mk-callback-str
+                                    (get-in context [:session :id]) flow-name step-name)
+        step-res           (step-fn callback-gen context data)]
 
     ; Process results
     ; TODO catch errors, here or around entire fn; get an error handler
     ;      from `handlers` (also do a log/error)
-    (let [session-mutations-from-actions
+    (let [{session-muta-from-actions :session-state}
           (process-actions context handlers (:actions step-res))]
-
       ; Update state
-      (let [{session-mutations-from-step :shared-state-mutations step-state :step-state} step-res
-            session-mutations (merge session-mutations-from-step session-mutations-from-actions)]
+      (let [{session-mutations-from-step :shared-state-mutations
+             step-state                  :step-state} step-res
+            session-mutations (merge session-mutations-from-step
+                                     session-muta-from-actions)]
         (ds/store-session datastore session flow-name step-name session-mutations step-state)))
 
     ; Evaluate transitions
-    (if-let [[next-flow next-step-name]
-             (evaluate-transition flow-engine context flow (:transition step-res))]
-      (if (>= (or depth 0) 7)
+    (let [[next-flow next-step-name end?]
+          (evaluate-transition flow-engine context flow (:transition step-res))]
+
+      (cond
+        end?
+        (do (ds/end-session datastore (ds/session-id datastore session))
+            context)
+
+        (and next-flow next-step-name (>= (or depth 0) 7))
         (throw (ex-info "Step has recursed too many times without user interaction"
                         {:depth       depth
                          ::type       "recursion-limit"
                          :next        [next-flow next-step-name]
                          :trans-value (:transition step-res)}))
+
+        (and next-flow next-step-name)
         (run-step flow-engine
                   ; Get a fresh session for the next step.
                   (ds/get-session datastore (get-in context [:session :id]))
                   data next-flow next-step-name trigger
-                  (inc (or depth 0))))
-      context)))
+                  (inc (or depth 0))
+                  round-epoch-millis)
+
+        :else
+        context))))
 
 (defn trigger-init
   "Trigger any matching flows. `data` is opaque to the engine, but is passed to
   the Step functions. Returns final `context` from the first executed flow."
   [flow-engine trigger data]
   (let [matches (trigger-matches (:flow-config flow-engine) trigger)]
-    (log/info "Triggering" trigger (map :name matches))
+    (log/infof "Triggering `%s`, matches: %s" trigger (mapv :name matches))
     (first
       (doall
         (for [flow matches
