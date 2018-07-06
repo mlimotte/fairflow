@@ -1,4 +1,4 @@
-(defproject fairflow "0.1.0-SNAPSHOT"
+(defproject org.clojars.mlimotte/fairflow "0.2.1-SNAPSHOT"
 
   :description "A library (engine) to drive configurable workflows for any purpose."
 

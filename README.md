@@ -1,11 +1,5 @@
 # fairflow
 
-N.B. This library is in an our early, state. Therefore, I have not released it on clojars. If you want to use it as is, your best bet is to fork the repo. 
-
-
-TODO Deploy to clojars: https://github.com/technomancy/leiningen/blob/stable/doc/DEPLOY.md.
-
-
 A Clojure library designed to control generic workflows via configuration. The core engine controls movement from one state to another based on generic events, executing generic actions at each step.  I use the word generic several times there, to emphasize that aspects of...
 
 * How events are received
@@ -16,6 +10,10 @@ A Clojure library designed to control generic workflows via configuration. The c
 ... are all abstracted from the core.  
 
 The `fair.contrib` package contains examples (or useable implementations) for some of those abstractions, so that this library is useable out of the box.
+
+## Install
+
+[![Clojars Project](https://img.shields.io/clojars/v/org.clojars.mlimotte/fairflow.svg)](https://clojars.org/org.clojars.mlimotte/fairflow)
 
 ## How it works
 
