@@ -210,8 +210,8 @@
                          :flow-b {:type        "steppy"
                                   :name        "start"
                                   :transitions "_auto"}})
-        all-sessions  (atom [])
-        dstore        (memory-ds/->MemoryDatastore all-sessions)
+        dstore        (memory-ds/mk-store )
+        all-sessions  (:all-sessions dstore)
         new-session   (ds/new-session dstore nil nil nil nil)
         handler-calls (atom [])
         global        {:extra "req1"}]
@@ -246,8 +246,8 @@
            {:foo 10}))))
 
 (deftest test-trigger-init
-  (let [all-sessions  (atom [])
-        dstore        (memory-ds/->MemoryDatastore all-sessions)
+  (let [dstore        (memory-ds/mk-store)
+        all-sessions  (:all-sessions dstore)
         handler-calls (atom [])
         flow-config   (normalize-flow-config
                         {:flow-a {:trigger "foo"

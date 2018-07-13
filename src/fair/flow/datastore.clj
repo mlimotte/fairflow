@@ -2,7 +2,8 @@
   "Protocol for the Flow Datastore, which describes the actions
   used to read and write session data."
   (:require
-    [clojure.string :as string]))
+    [clojure.string :as string]
+    [clojure.spec.alpha :as s]))
 
 (def session-state-active "active")
 (def session-state-stopped "stopped")
@@ -73,3 +74,5 @@
   "Is the given session active (fair.flow.datastore/session-state-active)?"
   [datastore session]
   (= (session-status datastore session) session-state-active))
+
+(s/def ::datastore (partial satisfies? FlowEngineDatastore))

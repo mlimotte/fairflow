@@ -183,7 +183,7 @@
 
 (defn- assert-non-blank!
   [keywords]
-  (if-let [blanks (seq (filter (comp string/blank? name) keywords))]
+  (if-let [blanks (seq (filter (fn [k] (or (nil? k) (string/blank? (name k)))) keywords))]
     (throw (ex-info "Blank headers were found, can not continue." {:blank-headers blanks}))
     keywords))
 

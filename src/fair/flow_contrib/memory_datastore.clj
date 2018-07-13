@@ -5,7 +5,7 @@
     [fair.flow.datastore :as ds]
     [fair.flow.util.lang :as lang]))
 
-(deftype MemoryDatastore [all-sessions]
+(defrecord MemoryDatastore [all-sessions]
   ds/FlowEngineDatastore
   (new-session [this flow-version flow-name step-name data]
     (let [len         (count @all-sessions)
@@ -48,3 +48,10 @@
           old-session      (get @all-sessions idx)]
       (swap! all-sessions assoc idx (assoc old-session
                                       :status ds/session-state-stopped)))))
+
+(defn mk-store
+  "Construct a basic MemoryDatastore.
+   To get access to the underlying data, get the Atom.
+   (:all-sessions (mk-store))"
+  []
+  (->MemoryDatastore (atom [])))
