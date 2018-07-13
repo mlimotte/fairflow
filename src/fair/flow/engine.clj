@@ -207,14 +207,15 @@
   `trans-value` is the `:transition` from the last StepResult."
   [{:keys [flow-config] :as flow-engine} context current-flow trans-value]
 
-  ; TODO (maybe) A single string as transition_config should become {"*" STRING_VAL}
-  ;    - Special value `*` in map check should match any non-nil trans-value (iff there is no exact match)
-
-  ; Step Functions need to return non-nil, in order for a transition config to be considered.
   (let [current-step-name (get-in context [:step :name])
         current-step-idx  (get-in context [:step :idx])]
+
+    (log/trace "evaluate-transition " [(:name current-flow) current-step-name current-step-idx]
+               trans-value)
+
     (cond
 
+      ; Step Functions need to return non-nil, in order for a transition config to be considered.
       (nil? trans-value)
       nil
 
@@ -338,6 +339,8 @@
         callback-gen       (partial mk-callback-str
                                     (get-in context [:session :id]) flow-name step-name)
         step-res           (step-fn callback-gen context data)]
+
+    (log/tracef "For Step, %s (%s), result: %s" step step-fn step-res)
 
     ; Process results
     ; TODO catch errors, here or around entire fn; get an error handler

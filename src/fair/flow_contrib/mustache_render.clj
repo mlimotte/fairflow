@@ -12,5 +12,5 @@
 
 (defn deep-string-values-render
   [data-map struc]
-  (log/trace "Rendering with data-map:" data-map)
+  (log/trace "Rendering with data-map:" (pr-str data-map))
   (walk/postwalk (partial string-values-render data-map) struc))
