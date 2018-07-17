@@ -21,8 +21,10 @@
   (string/join "-" (map str args)))
 
 (defn parse-dash-key
-  [k]
-  (string/split k #"-"))
+  [k & [limit]]
+  (if limit
+    (string/split k #"-" limit)
+    (string/split k #"-")))
 
 (defprotocol FlowEngineDatastore
   "Functions for managing state storage for the Flow Engine."
