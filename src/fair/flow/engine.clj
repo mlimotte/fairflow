@@ -12,8 +12,7 @@
 ; implementations that want to allow multiple flow engines to be active at once.
 ; See fair.flow.flow-contrib.slack-routes.
 ; The FlowEngine record itself, implements FlowEngineManager/get-engine. This
-; way, you can always use a FlowEngine as a FlowEngineManager that always returns
-; itself.
+; way, you can use a FlowEngine as a FlowEngineManager that always returns itself.
 (defprotocol FlowEngineManager
   (get-engine [this version])
   (load-engine [this version]))
@@ -41,6 +40,10 @@
                        :lst (s/coll-of (s/cat :k keyword? :v any?))))
 
 (s/def ::transition (s/nilable ::fus/non-blank-str))
+; N.B.: The next two (i.e. the state fields) require String keys (not keywords),
+;       so that they will be compatible with non-clojure-aware datastores. E.g.
+;       if the data is stored and read from json or yaml, it would write as a
+;       (potentially qualified) keyword, but read back as a String.
 (s/def ::shared-state-mutations (s/nilable (s/map-of string? any?)))
 (s/def ::step-state (s/nilable (s/map-of string? any?)))
 
@@ -185,9 +188,9 @@
     (apply merge-with lang/merge-maps)))
 
 (s/fdef process-actions
-  :args (s/cat :context ::context
-               :handlers (s/map-of keyword? fn?)
-               :actions ::actions))
+        :args (s/cat :context ::context
+                     :handlers (s/map-of keyword? fn?)
+                     :actions ::actions))
 
 (defn parse-flow-step
   "Get the flow-name and step from step-specifier, which is a String, either
@@ -303,19 +306,17 @@
     - step fn calls (in run-step)
     - render (in run-step)
     - handlers (in run-step)"
-  [{:keys [datastore hooks] :as flow-engine} session flow step global trigger
-   round-epoch-millis]
+  [{:keys [datastore hooks] :as flow-engine} session flow step global trigger]
   (let [enrichment (:context-enrichment hooks)
         renderer   (:renderer hooks)
-        context1   {:flow               (select-keys flow [:name])
-                    :step               (select-keys step [:name :args :idx])
-                    :global             global
-                    :trigger            trigger
-                    :round-epoch-millis round-epoch-millis
-                    :session            {:step-state   (ds/get-step-state datastore session
-                                                                          (:name flow) (:name step))
-                                         :shared-state (ds/get-session-state datastore session)
-                                         :id           (ds/session-id datastore session)}}
+        context1   {:flow    (select-keys flow [:name])
+                    :step    (select-keys step [:name :args :idx])
+                    :global  global
+                    :trigger trigger
+                    :session {:step-state   (ds/get-step-state datastore session
+                                                               (:name flow) (:name step))
+                              :shared-state (ds/get-session-state datastore session)
+                              :id           (ds/session-id datastore session)}}
         context2   (if enrichment
                      (enrichment flow-engine context1 session)
                      context1)
@@ -328,17 +329,15 @@
   persisted values of those arguments, so the passed in arguments will be used instead."
   [{:keys [aliases handlers datastore global] :as flow-engine}
    session data flow step trigger
-   & [depth round-epoch-millis]]
+   & [depth]]
   (log/infof "Running step %s/%s" (:name flow) (:name step))
-  (let [round-epoch-millis (or round-epoch-millis (.toEpochMilli (jtime/instant)))
-        step-fn            (get-step-fn aliases step)
-        flow-name          (:name flow)
-        step-name          (:name step)
-        context            (full-context flow-engine session flow step global trigger
-                                         round-epoch-millis)
-        callback-gen       (partial mk-callback-str
-                                    (get-in context [:session :id]) flow-name step-name)
-        step-res           (step-fn callback-gen context data)]
+  (let [step-fn      (get-step-fn aliases step)
+        flow-name    (:name flow)
+        step-name    (:name step)
+        context      (full-context flow-engine session flow step global trigger)
+        callback-gen (partial mk-callback-str
+                              (get-in context [:session :id]) flow-name step-name)
+        step-res     (step-fn callback-gen context data)]
 
     (log/tracef "For Step, %s (%s), result: %s" step step-fn step-res)
 
@@ -375,8 +374,7 @@
                   ; Get a fresh session for the next step.
                   (ds/get-session datastore (get-in context [:session :id]))
                   data next-flow next-step-name trigger
-                  (inc (or depth 0))
-                  round-epoch-millis)
+                  (inc (or depth 0)))
 
         :else
         context))))

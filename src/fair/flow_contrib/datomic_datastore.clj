@@ -48,6 +48,15 @@
     :db/valueType   :db.type/ref ; REF :state
     :db/cardinality :db.cardinality/many
     :db/doc         "Refs to session+flow+step specific state."}
+   {:db/id          #db/id[:db.part/db]
+    :db/ident       :flow-session/session-status
+    :db/valueType   :db.type/ref ; REF session-status
+    :db/cardinality :db.cardinality/one
+    :db/doc         "Enum for session status, active or otherwise"}
+
+   ; session-status ENUM values
+   {:db/ident :session-status/active}
+   {:db/ident :session-status/stopped}
 
    ;; State
    {:db/id          #db/id[:db.part/db]
@@ -89,7 +98,8 @@
                                   [{:db/id                          "new-session"
                                     :flow-session/flow-version      flow-version
                                     :flow-session/current-flow      flow-name
-                                    :flow-session/current-step-name step-name}])
+                                    :flow-session/current-step-name step-name
+                                    :flow-session/session-status    :session-status/active}])
           session-id (get (:tempids res) "new-session")
           session    (d/entity (:db-after res) session-id)]
       (log/info "New session initialized" session-id flow-name step-name)
@@ -101,6 +111,11 @@
 
   (session-id [this session]
     (str (:db/id session)))
+
+  (session-status [this session]
+    (condp = (:flow-session/session-status session)
+      :session-status/active ds/session-state-active
+      :session-status/stopped ds/session-state-stopped))
 
   (get-session-state [this session]
     (-> session :flow-session/shared-state :state/edn edn/read-string))
@@ -135,7 +150,15 @@
                     :flow-session/shared-state      {:state/key shared-state-key
                                                      :state/edn shared-state-edn}}])
       (when step-state
-        (store-step-state this conn session flow-name step-name step-state)))))
+        (store-step-state this conn session flow-name step-name step-state))))
+
+  (end-session [this session-id]
+    (log/infof "Ending session %s" session-id)
+    (d/transact conn
+                [{:db/id                       (lang/as-long session-id)
+                  :flow-session/session-status :session-status/stopped}]))
+
+  )
 
 (defn setup
   "Create a new database and install/update the schema."

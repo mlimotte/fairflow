@@ -41,7 +41,7 @@
     get state, session id, etc.")
 
   (get-session [this session-id]
-    "Retrieve the session from storage.")
+    "Retrieve the session from storage. Return nil if session doesn't exist.")
 
   (session-id [this session]
     "Get the unique (PK) id for the session, which should be a string.")

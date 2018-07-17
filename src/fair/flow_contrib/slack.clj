@@ -8,7 +8,8 @@
     [fair.flow.util.spec :as fus]
     [fair.flow.engine :as engine]
     [fair.flow.util.lang :as lang]
-    [clojure.walk :as walk]))
+    [clojure.walk :as walk]
+    [clojure.spec.alpha :as s]))
 
 (def color-error-red "#FF4444")
 (def color-action-green "#44FF44")
@@ -16,7 +17,6 @@
 (def color-map {:error-red    color-error-red
                 :action-green color-action-green})
 
-(def last-round-messages "_slack_last-round-messages")
 (def message-list "_slack_messages")
 
 ;;; Slack Helpers
@@ -28,11 +28,47 @@
   (or (get-in slack-thing [:event :channel])
       (get-in slack-thing [:channel :id])))
 
+(defn get-ts
+  [slack-thing]
+  (or (:action_ts slack-thing)
+      (:message_ts slack-thing)
+      (get-in slack-thing [:message :ts])))
+
 (def json-content-type {"Content-type" "application/json; charset=utf-8"})
 
-; TODO Add a rate-limiter
+(defn slack-sync
+  "Run the slack function `f`, which return a SLack response. Throw exception on
+  errors."
+  [f & args]
+  ; TODO Add a rate-limiter
+  (let [result (apply f args)
+        body   (json/read-str (:body result) :key-fn keyword)]
+    ; TODO check for 429s, integrate w/ rate limiter and retry.
+    ; TODO retry 500s
+    (if (:ok body)
+      body
+      (log/error "Failed to post message: " body))))
 
-(defn send-message
+(defn slack-async
+  "Run the function `f` in a future. `f` should return a Slack response body.
+  It also checks the result of `f` for an error and logs the error if found.
+  Returns the Future."
+  [f & args]
+  ; TODO Add a rate-limiter
+  (future
+    (try
+      (let [result (apply f args)
+            body   (json/read-str (:body result) :key-fn keyword)]
+        ; TODO check for 429s, integrate w/ rate limiter and retry.
+        ; TODO retry 500s
+        (if (:ok body)
+          body
+          (log/error "Failed to post message: " body)))
+      (catch Exception e
+        (log/error e "Failed to post message for " args)
+        (throw e)))))
+
+(defn send-message*
   "POST a message to Slack, synchronously."
   ; chat.postMessage works with JSON, but many Slack apis require content-type
   ; application/x-www-form-urlencoded instead.
@@ -47,77 +83,47 @@
                              "Authorization" (str "Bearer " token))
                   :body    (json/write-str message)}))))
 
-(defn slack-async
-  "Run the function `f` in a future. `f` should return a Slack response body.
-  It also checks the result of `f` for an error and logs the error if found.
-  Returns the Future."
-  [f & args]
-  (future
-    (try
-      (let [result (apply f args)
-            body   (json/read-str (:body result) :key-fn keyword)]
-        ; TODO check for 429s, integrate w/ rate limiter and retry.
-        ; TODO retry 500s
-        (if (:ok body)
-          body
-          (log/error "Failed to post message: " body)))
-      (catch Exception e
-        (log/error e "Failed to post message for " args)
-        (throw e)))))
+(def ^{:doc "POST a message to Slack, synchronously."} send-message
+  (partial slack-sync send-message*))
 
 (def ^{:doc "POST a message to Slack, asynchronously."} send-message-async
-  (partial slack-async send-message))
+  (partial slack-async send-message*))
 
 ;;; FlowEngine Handlers
 
 (defn slack-send-message-handler
   "An action handler for sending Slack messages."
-  [token {:keys [session round-epoch-millis]} payload]
+  [token {:keys [session]} payload]
   (let [message-id    (::message-id payload)
         existing-ts   (get-in session [:shared-state "messages" message-id])
-        api-method    (::api-method payload)
         ; If this is a chat.postMessage and we have an existing ts, let's do an update instead
+        api-method    (::api-method payload)
         api-method    (if (and existing-ts (= api-method "chat.postMessage"))
                         "chat.update"
                         api-method)
-        response      (send-message token
+        response-body (send-message token
                                     api-method
                                     (-> payload
-                                        (dissoc ::api-method ::message-id)
+                                        (dissoc ::api-method ::message-id ::response-to)
                                         (assoc :ts existing-ts)))
-        response-body (some-> response :body (json/read-str :key-fn keyword))
         ; Note: Slack timestamps (ts) are Strings
-        ts            (:ts response-body)]
+        ts            (get-ts response-body)]
 
-    (let [last-round-messages-map (get-in session [:shared-state last-round-messages])
-          previous-keys           (some->> last-round-messages-map
-                                           keys
-                                           (filter (fn [k] (not= k round-epoch-millis)))
-                                           ; Explicit nil value, when in ActionMutation, will
-                                           ; cause the key to be deleted from the Shared session.
-                                           (map #(vector % nil))
-                                           (into {}))]
-
+    (if message-id
       (engine/map->ActionMutation
-        {:session-state
-         (merge
-           ; Save the ts in message-list if message-id is set
-           (if message-id {message-list {message-id ts}})
-           {last-round-messages (merge {round-epoch-millis {ts true}}
-                                       previous-keys)}
-           )}))))
+        {:session-state {message-list {message-id ts}}}))))
 
-(spec/def ::message-id string?)
+(spec/def ::message-id (s/nilable string?))
 
 ; payload has only been tested with these Slack message types, add more as they are tested.
 (spec/def ::api-method #{"chat.postMessage"
                          "dialog.open"})
 
 (spec/fdef slack-send-message-handler
-  :args (spec/cat :token ::fus/non-blank-str
-                  :context ::engine/context
-                  :payload (spec/keys :req [::api-method]
-                                      :opt [::message-id])))
+           :args (spec/cat :token ::fus/non-blank-str
+                           :context ::engine/context
+                           :payload (spec/keys :req [::api-method]
+                                               :opt [::message-id])))
 
 ;;; Slack Message creation Helpers
 
@@ -147,11 +153,11 @@
                    :value (or value final-name)})))
 
 (spec/fdef button
-  :args (spec/cat :button-spec
-                  (spec/or
-                    :map (spec/keys :opt-un [::name ::value]
-                                    :req-un [::text])
-                    :str ::fus/non-blank-str)))
+           :args (spec/cat :button-spec
+                           (spec/or
+                             :map (spec/keys :opt-un [::name ::value]
+                                             :req-un [::text])
+                             :str ::fus/non-blank-str)))
 
 ;;; Step functions
 
@@ -178,11 +184,12 @@
 
 (spec/def :fair.flow.slack.menu/args
   (spec/keys :opt-un [::text ::options]))
+
 (spec/fdef menu-step
-  ::args (spec/and ::engine/nil-kw-map
-                   (spec/tuple any?
-                               (spec/keys :req-un [:fair.flow.slack.menu/args])
-                               any?)))
+           ::args (spec/and ::engine/nil-kw-map
+                            (spec/tuple any?
+                                        (spec/keys :req-un [:fair.flow.slack.menu/args])
+                                        any?)))
 
 (defn message-step
   [callback-gen {:keys [args]} slack-event]
@@ -230,7 +237,7 @@
   ; TODO spec validate requirements of slack-event for both cases
   (let [step-state (:step-state session)]
     (if (get step-state "wait-on-response")
-      (let [save-as    (:save-key args)
+      (let [save-as    (keyword (:save-key args))
             submission (:submission slack-event)
             mutation   {save-as submission}]
         (if (= (:type slack-event) "dialog_cancellation")

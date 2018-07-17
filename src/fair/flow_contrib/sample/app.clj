@@ -14,18 +14,23 @@
   (:require
     [clojure.string :as string]
     [clojure.core.async :as async]
+    [clojure.tools.logging :as log]
+    [clj-logging-config.log4j :as logging-config]
+    [clojure.spec.alpha :as s]
+    [clojure.spec.test.alpha :as stest]
     [datomic.api]
+    [yaml.core :as yaml]
     [fair.flow.engine :as engine]
     [fair.flow.handlers :as handlers]
     [fair.flow-contrib.datomic-datastore :as datomicds]
     [fair.flow-contrib.mustache-render :as mustache-render]
-    [yaml.core :as yaml]
     [fair.flow.datastore :as ds]
-    [clj-logging-config.log4j :as logging-config]
-    [clojure.tools.logging :as log]
     [fair.flow.util.lang :as lang])
   (:import
     (java.util Date)))
+
+(def wait-for-key "_wait_for")
+(def options-key "_options")
 
 (defn console-read-line
   "Read a line from the console and put it on the core.async channel"
@@ -44,21 +49,21 @@
 (defn prompt-step
   [callback-gen {:keys [args session] :as context} msg]
   (let [step-state (:step-state session)]
-    (if (::wait-for step-state)
+    (if (get step-state wait-for-key)
       (let [save-key (engine/key-path (:save-key args))]
         (if (string/blank? msg)
           (engine/map->StepResult
-            {:step-state {::wait-for nil}
+            {:step-state {wait-for-key nil}
              :transition "blank"})
           (engine/map->StepResult
             ; TODO save-key should be a PATH --- fixme
             {:shared-state-mutations (assoc-in {} save-key msg)
-             :step-state             {::wait-for nil}
+             :step-state             {wait-for-key nil}
              :transition             "ok"})))
       (engine/map->StepResult
         {:actions    {:send-message (select-keys args [:text])
                       :read-line    (callback-gen)}
-         :step-state {::wait-for :response}}))))
+         :step-state {wait-for-key true}}))))
 
 (defn- show-menu
   [args callback-str]
@@ -72,19 +77,19 @@
     (engine/map->StepResult
       {:actions    {:send-message {:text menu-text}
                     :read-line    callback-str}
-       :step-state {::wait-for :response
-                    ::options  options}})))
+       :step-state {wait-for-key true
+                    options-key  options}})))
 
 (defn menu-step
   [callback-gen {:keys [args session] :as context} msg]
   (let [step-state (:step-state session)]
-    (if (::wait-for step-state)
+    (if (get step-state wait-for-key)
       (let [n (lang/as-long msg)]
         (if-not n
           (show-menu args (callback-gen))
           (engine/map->StepResult
-            {:step-state {::wait-for nil :options nil}
-             :transition (lang/simple-kebab (nth (::options step-state) n))})))
+            {:step-state {wait-for-key nil, options-key nil}
+             :transition (lang/simple-kebab (nth (get step-state options-key) n))})))
       (show-menu args (callback-gen)))))
 
 (def time-fmt (java.text.SimpleDateFormat. "HH:mm"))
@@ -156,9 +161,13 @@
   ; Logging
   (setup-logging!)
 
-  ; Note: While this sample app reads flow config from a YAML file, the Flow Engine does
-  ;       does not care. You could get your flow config from a JSON or a Google Sheet or
-  ;       whatever.
+  ; Enable Spec checking
+  (s/check-asserts true) ; Warning: This is inefficient at scale
+  (stest/instrument) ; triggers validation on fn with :args fn-spec
+
+  ; Note: While this sample app reads flow config from a YAML file, the Flow
+  ;       Engine does not care. You could get your flow config from a JSON
+  ;       or a Google Sheet or whatever.
   (let [flow-config (-> flow-config-filename
                         (yaml/from-file true)
                         engine/normalize-flow-config)
@@ -172,15 +181,12 @@
 
     ; There are generally two entry points to the flow engine.
     ; The first triggers new sessions...
-    (engine/trigger-init engine
-                         "session-start"
-                         nil)
+    (engine/trigger-init engine "session-start" nil)
 
-    ; The second is for callbacks...
-    @loop
+    ; ... The second is for callbacks...
     ; A Slack bot, for example, could do `trigger-init` based on the Slack events api,
     ; while callbacks are triggered by the Slack "interactives" webhook.
+    @loop
 
     (println "Shutdown.")
-    (async/close! read-ch)
-    ))
+    (async/close! read-ch)))

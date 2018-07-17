@@ -94,8 +94,7 @@
                   {:name "my-flow"}
                   {:name "step1" :args {:extra 10}}
                   nil
-                  "some-trigger-str-or-callback"
-                  (.toEpochMilli (jtime/instant)))]
+                  "some-trigger-str-or-callback")]
 
     ; Test: actions as a collection of tuples
     (process-actions context

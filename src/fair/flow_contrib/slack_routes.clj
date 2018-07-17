@@ -5,10 +5,8 @@
     [compojure.core :refer [routes GET POST defroutes]]
     [fair.flow.engine :as engine]
     [fair.flow.datastore :as ds]
-    [fair.flow-contrib.slack :as ffcslack]
-    [fair.flow.util.lang :as lang]))
+    [fair.flow-contrib.slack :as ffcslack]))
 
-(defonce last-round-by-session (atom {}))
 (defonce session-by-channel-id (atom {}))
 
 (defn token-valid?
@@ -68,16 +66,6 @@
         {:status 400
          :body   "Verification token check failed."}))))
 
-(defn last-round
-  "Is the ts from the last-round-of-messages? If so, return the `round-epoch-millis`,
-  otherwise nil."
-  [session-state ts]
-  (let [m (get session-state ffcslack/last-round-messages)]
-    (when (> (count m) 1)
-      (log/error "last-round-messages has more than one value"))
-    (if (->> m first val keys (filter #(= % ts)) first)
-      (-> m first key))))
-
 (defn interactives
   [token engine-manager]
   (POST "/slack/interactives" req
@@ -115,37 +103,14 @@
 
       (if (every? #(get callback %) [:session-id :flow-name :step-name])
         (let [session-id          (:session-id callback)
-              ; Always uses the latest version to get the datastore:
+              ; Always use the latest version to get the datastore:
               {:keys [datastore]} (engine/get-engine engine-manager nil)
-              session             (ds/get-session datastore session-id)
-              session-state       (ds/get-session-state datastore session)
-              original-message-ts (:message_ts payload)
-              current-last-round  (some->> (last-round session-state original-message-ts)
-                                           lang/as-long)]
+              session             (ds/get-session datastore session-id)]
 
           (cond
             (not (ds/session-active? datastore session))
             (log/info "Session is not active, dropping event:"
                       {:session session-id :event payload})
-
-            (not current-last-round)
-            (log/info "Dropping event from old session round:"
-                      {:session session-id :event payload})
-
-            (<= current-last-round (get @last-round-by-session session-id 0))
-            ; We use `stored-last-round` to check if this round has already been
-            ; acted on (e.g. to avoid a user clicking twice on same button).
-            ; But this solution is not synchronized, so there is a chance
-            ; for a false reading if two events come in at the same time and
-            ; read this value before the other has updated it.
-            ; We could do some in-memory lock, but that would fail if this
-            ; system were horizontally scaled.  Ideal solution would rely on the
-            ; database for sync.  But that depends on specific datastore implementation
-            ; and how the underlying db supports compare-and-set or other syncing
-            ; mechanisms.
-            (log/info (str "Dropping message from an old round. "
-                           "Possibly this is a double click. Session: %s, payload: %s")
-                      session-id payload)
 
             :else
             (let [flow-version (:flow_version session)
@@ -156,10 +121,7 @@
                                     (get (:flow-config flow-engine)))
                   step-name    (:step-name callback)
                   step         (engine/find-step flow step-name)]
-              ; Mark this round as action taken, to avoid debounce.
-              ; N.B. A downside to this is that if an interaction fails, the
-              ; Menu for this session is now locked up.
-              (swap! last-round-by-session assoc session-id current-last-round)
+
               (if flow
                 (future
                   (try
