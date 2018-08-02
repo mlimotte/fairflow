@@ -31,10 +31,6 @@
     ; TODO find username for user-id and include in this log line:
     (log/infof "app_mention received, starting session, channel: %s, user: %s"
                channel-id user-id)
-
-    (log/warn "MARC app_mention - can we distinguish one of these from another?  Is ts different?"
-              event)
-
     (let [trigger          (parse-trigger-fn req)
           context          (engine/trigger-init flow-engine trigger event)
           session-id       (get-in context [:session :id])

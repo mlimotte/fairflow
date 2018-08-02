@@ -13,8 +13,20 @@
   (string/join "." (map str args)))
 
 (defn parse-dot-key
-  [k]
-  (string/split k #"\."))
+  [k & [limit]]
+  (if limit
+    (string/split k #"\." limit)
+    (string/split k #"\.")))
+
+(defn mk-slash-key
+  [& args]
+  (string/join "/" (map str args)))
+
+(defn parse-slash-key
+  [k & [limit]]
+  (if limit
+    (string/split k #"/" limit)
+    (string/split k #"/")))
 
 (defn mk-dash-key
   [& args]
