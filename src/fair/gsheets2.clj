@@ -3,6 +3,7 @@
     [clojure.tools.logging :as log]
     [clojure.core.memoize :as memo]
     [clojure.string :as string]
+    [clojure.spec.alpha :as s]
     [flatland.ordered.map :refer [ordered-map]]
     [google-apps-clj.credentials :as gcreds]
     [google-apps-clj.google-sheets-v4 :as gsheet]
@@ -11,6 +12,8 @@
     [clj-time.core :as time])
   (:import
     com.google.api.services.sheets.v4.model.CellData))
+
+(s/def ::row-idx int?)
 
 ;;; Extension to gsheets lib
 
@@ -114,8 +117,7 @@
 
 (defn get-cells-from-sheet
   [ctx cell-range]
-  (->> (str (:sheet-title ctx) "!" cell-range)
-       vector
+  (->> [(str (:sheet-title ctx) "!" cell-range)]
        (gsheet/get-cells (:service ctx) (:spreadsheet-id ctx))
        ; first range
        first))
@@ -169,11 +171,16 @@
     (get-cells-from-sheet ctx range)))
 
 (defn read-all-data
-  "Return a Vector of Vectors for the row data.
-  If `num-cols` is not specified, will attempt to guess based on first 4 rows of data."
+  "Return a Vector of Vectors (i.e. non-lazy) for the row data.
+  If `num-cols` is not specified, will attempt to guess based on first 4 rows of data.
+  Attaches meta data (::row-idx) to each row vector."
   [ctx & [options]]
   (->> (read-all-data-cells ctx options)
-       (mapv (partial mapv cell->clj))))
+       ;(mapv (partial mapv cell->clj))
+       (map-indexed vector)
+       (map (fn [[idx row]] [idx (mapv cell->clj row)]))
+       (mapv (fn [[idx row]]
+               (with-meta row {::row-idx idx})))))
 
 (defn dups [coll]
   "If coll has any duplicates values, return a lazy-seq of those dupes."
